@@ -1,4 +1,7 @@
+# frontend/streamlit_app.py
+
 import streamlit as st
+import requests
 
 st.set_page_config(page_title="Investment Sourcing Agent", layout="wide")
 
@@ -7,7 +10,6 @@ st.set_page_config(page_title="Investment Sourcing Agent", layout="wide")
 # -------------------------
 st.title("💼 Investment Sourcing Agent")
 st.write("Fill in the criteria below and the agent will search the market on your behalf.")
-
 
 # -------------------------
 # SEARCH CRITERIA SECTION
@@ -23,24 +25,60 @@ example_queries = {
 col1, col2 = st.columns([3, 1])
 
 with col1:
+    initial_text = st.session_state.get("search_criteria", "")
     search_criteria = st.text_area(
         "Describe your investment thesis or criteria:",
+        value=initial_text,
         height=150,
         placeholder="e.g., AI-powered compliance tools, Middle East presence, Series A–B..."
     )
+    st.session_state["search_criteria"] = search_criteria
 
 with col2:
     st.write("#### Examples")
     for label, query in example_queries.items():
         if st.button(label):
-            search_criteria = query
-            st.session_state["search_criteria"] = query  # store for display
+            st.session_state["search_criteria"] = query
+            # Immediately show in the text area
+            st.experimental_rerun() if hasattr(st, "experimental_rerun") else None
 
+# -------------------------
+# Backend call for Enhance with AI
+# -------------------------
+BACKEND_URL = "http://localhost:8000"  # adjust if backend runs elsewhere
 
-# Enhance with AI button (functionality added later)
+def enhance_with_ai_call(text: str) -> str:
+    if not text or not text.strip():
+        return "Please provide search criteria to enhance."
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/enhance_query",
+            json={"user_query": text},
+            timeout=20
+        )
+        if resp.status_code == 200:
+            return resp.json().get("refined_query", "No refined text returned.")
+        else:
+            return f"Error from backend: {resp.status_code} {resp.text}"
+    except Exception as e:
+        return f"Error calling backend: {e}"
+
+# -------------------------
+# Enhance with AI Button
+# -------------------------
 if st.button("✨ Enhance with AI"):
-    st.info("AI enhancement will be implemented in Step 2.")
+    current = st.session_state.get("search_criteria", "") or search_criteria
+    st.info("Contacting enhancement service...")
+    enhanced = enhance_with_ai_call(current)
+    st.session_state["search_criteria"] = enhanced
 
+    # Display the enhanced query immediately
+    st.subheader("Enhanced Query")
+    st.text_area("Enhanced Search Criteria:", value=enhanced, height=150)
+
+    # Debug output to verify backend response
+    st.subheader("Debug Info")
+    st.json({"backend_response": enhanced})
 
 # -------------------------
 # DATA COLLECTION SECTION
@@ -62,11 +100,7 @@ custom_attributes = st.text_input(
     placeholder="e.g., revenue, customer count, competitors..."
 )
 
-# Convert comma-separated → list
-custom_attributes_list = [
-    attr.strip() for attr in custom_attributes.split(",") if attr.strip()
-]
-
+custom_attributes_list = [attr.strip() for attr in custom_attributes.split(",") if attr.strip()]
 
 # -------------------------
 # EMAIL SECTION
@@ -80,11 +114,82 @@ user_email = st.text_input(
 
 
 # -------------------------
-# SUBMIT BUTTON (placeholder)
+# SUBMIT BUTTON AND AGENT RUNNER
 # -------------------------
+
+# State to store streaming logs
+if 'log_messages' not in st.session_state:
+    st.session_state.log_messages = []
+
+# Function to run the agent and handle SSE
+def run_scout_agent_sse(criteria, attributes, email):
+    st.session_state.log_messages = []
+    
+    # Combine all attributes into a single list
+    all_attributes = selected_presets + [attr.strip() for attr in custom_attributes.split(",") if attr.strip()]
+
+    # Data payload for the backend
+    payload = {
+        "search_criteria": criteria,
+        "attributes": all_attributes,
+        "email": email,
+    }
+
+    try:
+        # 1. Start the connection to the backend's streaming endpoint
+        with requests.post(
+            f"{BACKEND_URL}/run_scout",
+            json=payload,
+            stream=True, # MUST be True for streaming
+            timeout=300 
+        ) as response:
+            
+            if response.status_code != 200:
+                st.error(f"Error starting agent: {response.status_code} - {response.text}")
+                return
+
+            # This is where the status updates will appear!
+            status_placeholder = st.empty()
+            
+            # --- 2. Listen for the streaming messages (SSE) ---
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    
+                    # Look for the 'data:' part of the SSE message
+                    if decoded_line.startswith("data:"):
+                        data_content = decoded_line[len("data:"):].strip()
+                        
+                        # Save the message
+                        st.session_state.log_messages.append(data_content)
+                        
+                        # Show all the saved messages in the UI
+                        log_output = "\n".join(st.session_state.log_messages)
+                        status_placeholder.markdown(f"**Agent Status Log:**\n```markdown\n{log_output}\n```")
+
+                        # Stop if the backend says the job is 'complete'
+                        if decoded_line.startswith("event: complete"):
+                            st.success("Investment Scout Agent completed successfully!")
+                            break
+                        
+    except Exception as e:
+        st.error(f"A connection error occurred: {e}")
+        st.session_state.log_messages.append(f"ERROR: {e}")
+
+
+# --- Actual Button Logic ---
 if st.button("🚀 Run Investment Scout Agent"):
-    st.success("Form submitted! Backend integration coming in later steps.")
-    st.write("**Search Criteria:**", search_criteria)
-    st.write("**Preset Attributes:**", selected_presets)
-    st.write("**Custom Attributes:**", custom_attributes_list)
-    st.write("**Email:**", user_email)
+    
+    # 1. Basic Validation
+    if not st.session_state.get("search_criteria") or not user_email:
+        st.error("Please fill in the Search Criteria and your Email address.")
+        st.stop()
+        
+    st.info("Starting Agent...")
+    
+    # 2. Run the function that handles the streaming
+    run_scout_agent_sse(
+        criteria=st.session_state["search_criteria"],
+        attributes=selected_presets,
+        email=user_email
+    )
