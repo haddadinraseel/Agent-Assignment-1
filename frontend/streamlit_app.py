@@ -2,9 +2,29 @@
 
 import streamlit as st
 import requests
+import re
+import sseclient
+import requests
 
 st.set_page_config(page_title="Investment Sourcing Agent", layout="wide")
 
+def stream_agent_updates(criteria: str, attributes: list, email: str):
+    """
+    Connects to backend /run_scout and yields log messages.
+    """
+    url = "http://localhost:8000/run_scout"
+    payload = {
+        "search_criteria": criteria,
+        "attributes": attributes,
+        "email": email
+    }
+
+    # Stream the response
+    with requests.post(url, json=payload, stream=True) as response:
+        client = sseclient.SSEClient(response)
+        for event in client.events():
+            # event.data is the text from backend
+            yield event.data
 # -------------------------
 # PAGE HEADER
 # -------------------------
@@ -177,19 +197,16 @@ def run_scout_agent_sse(criteria, attributes, email):
         st.session_state.log_messages.append(f"ERROR: {e}")
 
 
-# --- Actual Button Logic ---
 if st.button("🚀 Run Investment Scout Agent"):
+    st.success("Agent started! See live updates below:")
     
-    # 1. Basic Validation
-    if not st.session_state.get("search_criteria") or not user_email:
-        st.error("Please fill in the Search Criteria and your Email address.")
-        st.stop()
-        
-    st.info("Starting Agent...")
-    
-    # 2. Run the function that handles the streaming
-    run_scout_agent_sse(
-        criteria=st.session_state["search_criteria"],
-        attributes=selected_presets,
-        email=user_email
-    )
+    # Use placeholders to show logs
+    log_placeholder = st.empty()
+
+    criteria = st.session_state.get("search_criteria", "")
+    all_attributes = selected_presets + custom_attributes_list
+    user_email_value = user_email
+
+    for msg in stream_agent_updates(criteria, all_attributes, user_email_value):
+        # Just display each message
+        log_placeholder.text(msg)
