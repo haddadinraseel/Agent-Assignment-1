@@ -32,10 +32,11 @@ SENDGRID_KEY = os.getenv("SENDGRID_API_KEY")
 REPORT_FROM_EMAIL = os.getenv("REPORT_FROM_EMAIL")
 
 # Optional OpenAI import
+openai = None
 try:
     from openai import AzureOpenAI
 except ImportError:
-    openai = None
+    pass
 
 app = FastAPI(title="Investment Sourcing Agent - Backend")
 
@@ -200,14 +201,16 @@ async def linkup_search(payload: LinkupSearchRequest) -> Dict:
         
         if response.status_code == 200:
             data = response.json()
+            # Return jobs or data as is
+            jobs = data.get("jobs", data.get("results", []))
             return {
                 "success": True,
-                "results": data.get("jobs", [])
+                "results": jobs if isinstance(jobs, list) else []
             }
         else:
             return {
                 "success": False,
-                "error": f"Linkup API returned status {response.status_code}",
+                "error": f"Linkup API returned status {response.status_code}: {response.text}",
                 "results": []
             }
     except Exception as e:
