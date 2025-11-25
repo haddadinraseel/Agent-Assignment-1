@@ -1,212 +1,246 @@
-# frontend/streamlit_app.py
+# streamlit_app.py — Frontend for Startup Finder using SSE
 
 import streamlit as st
 import requests
-import re
-import sseclient
-import requests
+import json
+import time
 
-st.set_page_config(page_title="Investment Sourcing Agent", layout="wide")
+# -----------------------------------------------------------------------------
+# Page Config & Custom CSS
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Agentic Startup Scout",
+    page_icon="🚀",
+    layout="centered",  # Centered layout for a cleaner, single-column view
+    initial_sidebar_state="collapsed"
+)
 
-def stream_agent_updates(criteria: str, attributes: list, email: str):
-    """
-    Connects to backend /run_scout and yields log messages.
-    """
-    url = "http://localhost:8000/run_scout"
-    payload = {
-        "search_criteria": criteria,
-        "attributes": attributes,
-        "email": email
+# Custom CSS for a modern look
+st.markdown("""
+<style>
+    .main {
+        background-color: #f8f9fa;
     }
+    .stButton>button {
+        width: 100%;
+        font-weight: bold;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+    }
+    /* Card Styling */
+    .card {
+        background-color: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        border: 1px solid #eee;
+    }
+    .company-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin-bottom: 5px;
+    }
+    .company-desc {
+        color: #555;
+        font-size: 1rem;
+        line-height: 1.5;
+        margin-bottom: 15px;
+    }
+    .metric-container {
+        display: flex;
+        gap: 20px;
+        background: #f8f9fa;
+        padding: 10px 15px;
+        border-radius: 8px;
+    }
+    .metric-item {
+        flex: 1;
+    }
+    .metric-label {
+        font-size: 0.75rem;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 2px;
+    }
+    .metric-value {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #333;
+    }
+    /* Input styling */
+    .stTextArea textarea {
+        border-radius: 10px;
+        border: 1px solid #ddd;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    # Stream the response
-    with requests.post(url, json=payload, stream=True) as response:
-        client = sseclient.SSEClient(response)
-        for event in client.events():
-            # event.data is the text from backend
-            yield event.data
-# -------------------------
-# PAGE HEADER
-# -------------------------
-st.title("💼 Investment Sourcing Agent")
-st.write("Fill in the criteria below and the agent will search the market on your behalf.")
+# -----------------------------------------------------------------------------
+# Header
+# -----------------------------------------------------------------------------
+st.title("🚀 Agentic Startup Scout")
+st.markdown("##### AI-powered sourcing & deep-dive analysis for investors")
+st.markdown("---")
 
-# -------------------------
-# SEARCH CRITERIA SECTION
-# -------------------------
-st.header("1️⃣ Search Criteria")
+# -----------------------------------------------------------------------------
+# State Management
+# -----------------------------------------------------------------------------
+if "criteria_value" not in st.session_state:
+    st.session_state.criteria_value = "Agentic AI in healthcare, Series A, >$5M ARR"
 
-# Example presets
-example_queries = {
-    "Crypto Infra Example": "Infra space for crypto and web3, Saudi presence, Seed stage",
-    "AI Healthcare Example": "Agentic AI in healthcare, $5M+ ARR, Series A or B funding"
-}
+# -----------------------------------------------------------------------------
+# 1. Investment Thesis Section
+# -----------------------------------------------------------------------------
+st.subheader("1. Define Investment Thesis")
 
-col1, col2 = st.columns([3, 1])
+# Examples
+st.info("""
+💡 **Examples:**
+- *Infra space for crypto and web3, Saudi presence, Seed stage*
+- *Agentic AI in healthcare, $5M+ ARR, Series A or B funding*
+""")
 
+# Search Input
+# We use 'value' from session state, but we DO NOT bind 'key' to the same name
+# This allows us to update session_state.criteria_value programmatically
+criteria_input = st.text_area(
+    "Describe your investment thesis:",
+    value=st.session_state.criteria_value,
+    height=120,
+    help="Describe what you are looking for in natural language."
+)
+
+# Update session state when user types manually so we don't lose their edits
+if criteria_input != st.session_state.criteria_value:
+    st.session_state.criteria_value = criteria_input
+
+# Enhance Button (Right below input)
+col_enhance, col_dummy = st.columns([1, 3])
+with col_enhance:
+    if st.button("✨ Enhance with AI", help="Refine your query using AI to add synonyms and industry terms"):
+        with st.spinner("Refining your criteria..."):
+            try:
+                enhance_url = "http://localhost:8000/enhance_query"
+                # Use the current input value
+                resp = requests.post(enhance_url, json={"user_query": criteria_input})
+                if resp.status_code == 200:
+                    refined = resp.json().get("refined_query", "")
+                    if refined:
+                        # Update the session state variable
+                        st.session_state.criteria_value = refined
+                        st.rerun() # Reload to update the text area
+                else:
+                    st.error("Failed to enhance query.")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
+
+# -----------------------------------------------------------------------------
+# 2. Filters & Deep Dive
+# -----------------------------------------------------------------------------
+st.subheader("2. Filters & Deep Dive")
+
+col1, col2 = st.columns(2)
 with col1:
-    initial_text = st.session_state.get("search_criteria", "")
-    search_criteria = st.text_area(
-        "Describe your investment thesis or criteria:",
-        value=initial_text,
-        height=150,
-        placeholder="e.g., AI-powered compliance tools, Middle East presence, Series A–B..."
-    )
-    st.session_state["search_criteria"] = search_criteria
-
+    location = st.text_input("📍 Location", placeholder="e.g. San Francisco, London")
 with col2:
-    st.write("#### Examples")
-    for label, query in example_queries.items():
-        if st.button(label):
-            st.session_state["search_criteria"] = query
-            # Immediately show in the text area
-            st.experimental_rerun() if hasattr(st, "experimental_rerun") else None
+    funding_stage = st.selectbox("💰 Funding Stage", ["Any", "Seed", "Series A", "Series B", "Growth"])
 
-# -------------------------
-# Backend call for Enhance with AI
-# -------------------------
-BACKEND_URL = "http://localhost:8000"  # adjust if backend runs elsewhere
-
-def enhance_with_ai_call(text: str) -> str:
-    if not text or not text.strip():
-        return "Please provide search criteria to enhance."
-    try:
-        resp = requests.post(
-            f"{BACKEND_URL}/enhance_query",
-            json={"user_query": text},
-            timeout=20
-        )
-        if resp.status_code == 200:
-            return resp.json().get("refined_query", "No refined text returned.")
-        else:
-            return f"Error from backend: {resp.status_code} {resp.text}"
-    except Exception as e:
-        return f"Error calling backend: {e}"
-
-# -------------------------
-# Enhance with AI Button
-# -------------------------
-if st.button("✨ Enhance with AI"):
-    current = st.session_state.get("search_criteria", "") or search_criteria
-    st.info("Contacting enhancement service...")
-    enhanced = enhance_with_ai_call(current)
-    st.session_state["search_criteria"] = enhanced
-
-    # Display the enhanced query immediately
-    st.subheader("Enhanced Query")
-    st.text_area("Enhanced Search Criteria:", value=enhanced, height=150)
-
-    # Debug output to verify backend response
-    st.subheader("Debug Info")
-    st.json({"backend_response": enhanced})
-
-# -------------------------
-# DATA COLLECTION SECTION
-# -------------------------
-st.header("2️⃣ Data Points to Collect for Each Startup")
-
-preset_attributes = [
-    "Company Name", "Website", "Year Founded", "Founders",
-    "Location", "Funding Stage", "Latest Funding Amount"
-]
-
-selected_presets = st.multiselect(
-    "Choose standard data attributes:",
-    options=preset_attributes,
+attributes_input = st.text_input(
+    "🔍 Data to Extract (Deep Dive)",
+    value="Website, Founders, Total Funding, Latest Valuation, Key Competitors"
 )
+attributes = [a.strip() for a in attributes_input.split(",")]
 
-custom_attributes = st.text_input(
-    "Add up to 20 custom attributes (comma-separated):",
-    placeholder="e.g., revenue, customer count, competitors..."
-)
+st.markdown("---")
 
-custom_attributes_list = [attr.strip() for attr in custom_attributes.split(",") if attr.strip()]
+# -----------------------------------------------------------------------------
+# 3. Execution
+# -----------------------------------------------------------------------------
+run_btn = st.button("🚀 Launch Scout Agent", type="primary", use_container_width=True)
 
-# -------------------------
-# EMAIL SECTION
-# -------------------------
-st.header("3️⃣ Email Delivery")
+# Placeholders
+status_container = st.container()
+results_container = st.container()
 
-user_email = st.text_input(
-    "Enter your email address (report will be sent here):",
-    placeholder="name@example.com",
-)
-
-
-# -------------------------
-# SUBMIT BUTTON AND AGENT RUNNER
-# -------------------------
-
-# State to store streaming logs
-if 'log_messages' not in st.session_state:
-    st.session_state.log_messages = []
-
-# Function to run the agent and handle SSE
-def run_scout_agent_sse(criteria, attributes, email):
-    st.session_state.log_messages = []
-    
-    # Combine all attributes into a single list
-    all_attributes = selected_presets + [attr.strip() for attr in custom_attributes.split(",") if attr.strip()]
-
-    # Data payload for the backend
-    payload = {
-        "search_criteria": criteria,
-        "attributes": all_attributes,
-        "email": email,
-    }
-
-    try:
-        # 1. Start the connection to the backend's streaming endpoint
-        with requests.post(
-            f"{BACKEND_URL}/run_scout",
-            json=payload,
-            stream=True, # MUST be True for streaming
-            timeout=300 
-        ) as response:
+if run_btn:
+    with status_container:
+        with st.status("🤖 Agent Workflow Running...", expanded=True) as status:
+            st.write(f"📡 Connecting to Scout Agent...")
             
-            if response.status_code != 200:
-                st.error(f"Error starting agent: {response.status_code} - {response.text}")
-                return
-
-            # This is where the status updates will appear!
-            status_placeholder = st.empty()
+            # Prepare payload
+            payload = {
+                "search_criteria": f"{st.session_state.criteria_value} {location if location else ''} {funding_stage if funding_stage != 'Any' else ''}",
+                "attributes": attributes,
+                "email": "user@example.com"
+            }
             
-            # --- 2. Listen for the streaming messages (SSE) ---
-            for line in response.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    
-                    # Look for the 'data:' part of the SSE message
-                    if decoded_line.startswith("data:"):
-                        data_content = decoded_line[len("data:"):].strip()
-                        
-                        # Save the message
-                        st.session_state.log_messages.append(data_content)
-                        
-                        # Show all the saved messages in the UI
-                        log_output = "\n".join(st.session_state.log_messages)
-                        status_placeholder.markdown(f"**Agent Status Log:**\n```markdown\n{log_output}\n```")
+            url = "http://localhost:8000/run_scout"
+            
+            found_companies = []
+            
+            try:
+                response = requests.post(url, json=payload, stream=True)
+                
+                for line in response.iter_lines():
+                    if line:
+                        decoded = line.decode("utf-8")
+                        if decoded.startswith("data: "):
+                            content = decoded.replace("data: ", "")
+                            
+                            # Try to parse as JSON (final result) or plain text (status update)
+                            try:
+                                data_json = json.loads(content)
+                                if "success" in data_json:
+                                    found_companies = data_json.get("results", [])
+                                    status.update(label="✅ Mission Complete!", state="complete", expanded=False)
+                                    break
+                            except:
+                                # It's a status message
+                                st.write(f"🔹 {content}")
 
-                        # Stop if the backend says the job is 'complete'
-                        if decoded_line.startswith("event: complete"):
-                            st.success("Investment Scout Agent completed successfully!")
-                            break
-                        
-    except Exception as e:
-        st.error(f"A connection error occurred: {e}")
-        st.session_state.log_messages.append(f"ERROR: {e}")
+                if found_companies:
+                    st.success(f"Successfully analyzed {len(found_companies)} companies!")
+                else:
+                    st.warning("No companies found or analysis failed.")
+                
+            except Exception as e:
+                status.update(label="❌ Error", state="error")
+                st.error(f"Connection failed: {e}")
 
-
-if st.button("🚀 Run Investment Scout Agent"):
-    st.success("Agent started! See live updates below:")
-    
-    # Use placeholders to show logs
-    log_placeholder = st.empty()
-
-    criteria = st.session_state.get("search_criteria", "")
-    all_attributes = selected_presets + custom_attributes_list
-    user_email_value = user_email
-
-    for msg in stream_agent_updates(criteria, all_attributes, user_email_value):
-        # Just display each message
-        log_placeholder.text(msg)
+# -----------------------------------------------------------------------------
+# Results Display
+# -----------------------------------------------------------------------------
+with results_container:
+    if run_btn and found_companies:
+        st.markdown("### 📊 Analysis Results")
+        
+        for company in found_companies:
+            st.markdown(f"""
+            <div class="card">
+                <div class="company-title">{company.get('Company Name', 'Unknown Company')}</div>
+                <div class="company-desc">{company.get('Description', 'No description available.')}</div>
+                
+                <div class="metric-container">
+                    <div class="metric-item">
+                        <div class="metric-label">Website</div>
+                        <div class="metric-value"><a href="{company.get('Website', '#')}" target="_blank">Visit 🔗</a></div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Funding</div>
+                        <div class="metric-value">{company.get('Total Funding', 'N/A')}</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Valuation</div>
+                        <div class="metric-value">{company.get('Latest Valuation', 'N/A')}</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <div class="metric-label">Founders</div>
+                    <div class="metric-value">{company.get('Founders', 'N/A')}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
