@@ -1,207 +1,203 @@
-"""Deep-dive agent: enrich company records using an LLM tool.
-
-This module attempts to use LangChain if available; if LangChain API
-shapes differ in the environment, it falls back to a simple local tool
-call so the package remains importable and functional for tests.
-"""
-
 import os
 import json
-from typing import List, Dict
-from functools import wraps
+from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv
 
 from langchain.tools import tool
+
+# Defensive imports to avoid crashes
 try:
-    # Newer/older LangChain layouts may differ; attempt imports and fall back gracefully
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-    from langchain_openai import ChatOpenAI
-    _LANGCHAIN_AVAILABLE = True
+    from langchain.agents import create_agent
 except Exception:
-    # If LangChain has changed in this environment, avoid hard failure on import
-    _LANGCHAIN_AVAILABLE = False
-    AgentExecutor = None
-    create_openai_tools_agent = None
-    ChatPromptTemplate = None
-    MessagesPlaceholder = None
+    create_agent = None
+
+try:
+    from langchain_openai import AzureChatOpenAI, ChatOpenAI
+except Exception:
+    AzureChatOpenAI = None
     ChatOpenAI = None
 
 
-# ------------------------------
-# Helper decorator to wrap tool calls
-# ------------------------------
-def wrap_tool_call(handler):
-    """Wrap a tool call to catch exceptions and return a friendly error."""
-    @wraps(handler)
-    def wrapper(*args, **kwargs):
-        try:
-            return handler(*args, **kwargs)
-        except Exception as e:
-            return {"error": f"Tool error: {str(e)}"}
-    return wrapper
+# ===========================
+# Load .env
+# ===========================
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
-# ------------------------------
-# Define Deep Dive Tool
-# ------------------------------
+# ===========================
+# Deep Dive Tool
+# ===========================
 @tool
-@wrap_tool_call
-def deep_dive_tool(company_json: str, criteria: str, attributes: str) -> Dict:
+def deep_dive_tool(company_json: str, criteria: str, attributes: str) -> str:
     """
-    A tool that takes a JSON-serialized company, criteria, and attributes,
-    and returns enriched company info.
+    Enrich a company by running a deep-dive search (LLM, APIs, etc.)
+    Input values are JSON strings due to LangChain tool I/O.
     """
     try:
         company = json.loads(company_json)
-    except Exception:
-        company = {"raw_input": company_json}
+        attrs = [a.strip() for a in attributes.split(",")]
 
-    attrs = [a.strip() for a in attributes.split(",") if a.strip()]
+        # Simulated enhancement — replace with real APIs
+        enriched = {
+            **company,
+            "Deep Dive Year Founded": "2021 (LLM)",
+            "Deep Dive Funding": "$10M (LLM)",
+            "Founders": "Alice & Bob (LLM)",
+            "Notes": f"Deep dive for criteria: {criteria}"
+        }
 
-    # Simulated enrichment (replace with real API / LLM calls)
-    enriched = company.copy() if isinstance(company, dict) else {}
-    enriched.update({
-        "Deep Dive Year Founded": "2021 (LLM)",
-        "Deep Dive Funding": "$10M (LLM)",
-        "Founders": "Alice & Bob (LLM)",
-        "Notes": f"Deep dive based on criteria: {criteria}"
-    })
+        # Ensure all attributes exist
+        for attr in attrs:
+            enriched.setdefault(attr, "N/A")
 
-    for attr in attrs:
-        if attr not in enriched:
-            enriched[attr] = "N/A"
-    return enriched
+        return json.dumps(enriched)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
-# ------------------------------
-# Initialize the LLM (if available)
-# ------------------------------
-llm = None
-if _LANGCHAIN_AVAILABLE and ChatOpenAI is not None:
+# ===========================
+# Initialize LLM
+# ===========================
+def _init_llm() -> Optional[object]:
+    """
+    Initialize AzureChatOpenAI or fallback to ChatOpenAI.
+    """
+    if not (AzureChatOpenAI or ChatOpenAI):
+        return None
+
+    # --- Azure ---
+    az_key = os.getenv("AZURE_OPENAI_KEY")
+    az_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    az_deploy = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
+    if az_key and az_endpoint and az_deploy and AzureChatOpenAI:
+        return AzureChatOpenAI(
+            azure_deployment=az_deploy,
+            api_key=az_key,
+            azure_endpoint=az_endpoint,
+            api_version="2024-02-15-preview",
+            temperature=0.2,
+        )
+
+    # --- Fallback: OpenAI ---
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key and ChatOpenAI:
+        return ChatOpenAI(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            openai_api_key=openai_key,
+            temperature=0.2,
+        )
+
+    return None
+
+
+# ===========================
+# Create Agent
+# ===========================
+llm = _init_llm()
+deep_dive_agent = None
+
+if llm and create_agent:
     try:
-        llm = ChatOpenAI(model="gpt-4", temperature=0.2)
-    except Exception:
-        llm = None
+        deep_dive_agent = create_agent(
+            model=llm,
+            tools=[deep_dive_tool],
+            system_prompt=(
+                "You are a senior investment research analyst. "
+                "Use the deep_dive_tool to enrich and analyze each company. "
+                "Return ONLY the JSON output from the tool."
+            ),
+        )
+        print("✅ Deep Dive Agent created successfully.")
+    except Exception as e:
+        print(f"⚠️ Deep Dive Agent creation failed: {e}")
+else:
+    print("⚠️ Missing LLM or agent factory. Using only raw tool fallback.")
 
 
-# ------------------------------
-# Create prompt template and agent executor (if LangChain available)
-# ------------------------------
-prompt = None
-deep_dive_agent_executor = None
-if _LANGCHAIN_AVAILABLE and ChatPromptTemplate is not None:
-    try:
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an investment deep-dive analyst. "
-                       "When given a company (in JSON), criteria, and attributes, "
-                       "you should call the deep_dive_tool to enrich the company data."),
-            ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
-        if create_openai_tools_agent is not None and AgentExecutor is not None and llm is not None:
-            try:
-                agent = create_openai_tools_agent(llm, [deep_dive_tool], prompt)
-                deep_dive_agent_executor = AgentExecutor(agent=agent, tools=[deep_dive_tool], verbose=True)
-            except Exception:
-                deep_dive_agent_executor = None
-    except Exception:
-        prompt = None
-        deep_dive_agent_executor = None
-
-
-# ------------------------------
-# Wrapper function for a single company
-# ------------------------------
+# ===========================
+# Internal helper (single company)
+# ===========================
 def _process_single_company(company: Dict, criteria: str, attributes: List[str]) -> Dict:
+    """
+    Runs deep dive for ONE company using the agent.
+    """
     comp_json = json.dumps(company)
     attrs_str = ", ".join(attributes)
 
-    user_input = f"Company: {comp_json}\nCriteria: {criteria}\nAttributes: {attrs_str}"
+    # ------- Agent path -------
+    if deep_dive_agent:
+        try:
+            prompt = (
+                f"Use deep_dive_tool to enrich this company.\n"
+                f"COMPANY_JSON: {comp_json}\n"
+                f"CRITERIA: {criteria}\n"
+                f"ATTRIBUTES: {attrs_str}\n"
+                f"Return only JSON."
+            )
 
+            response = deep_dive_agent.invoke({"input": prompt})
+            output_str = response.get("output", "")
+
+            return json.loads(output_str)
+        except Exception as e:
+            print(f"⚠️ Agent failed for {company.get('Company Name')}: {e}")
+
+    # ------- Tool fallback -------
     try:
-        if deep_dive_agent_executor is not None:
-            result = deep_dive_agent_executor.invoke({"input": user_input})
-            # result may be a dict or object depending on langchain; attempt extraction
-            if isinstance(result, dict) and "output" in result:
-                output_text = result["output"]
-            else:
-                output_text = str(result)
-        else:
-            # Fallback: call the tool function directly
-            tool_result = deep_dive_tool(comp_json, criteria, attrs_str)
-            if isinstance(tool_result, dict):
-                # If tool returned enriched dict, use it
-                output_text = json.dumps(tool_result)
-            else:
-                output_text = str(tool_result)
-
-        # Extract JSON if present
-        if "{" in output_text and "}" in output_text:
-            start = output_text.find("{")
-            end = output_text.rfind("}") + 1
-            try:
-                enriched_company = json.loads(output_text[start:end])
-            except Exception:
-                enriched_company = company
-                enriched_company["agent_note"] = output_text
-        else:
-            enriched_company = company
-            enriched_company["agent_note"] = output_text
-
+        result_json = deep_dive_tool.invoke({"company_json": comp_json, "criteria": criteria, "attributes": attrs_str})
+        return json.loads(result_json)
     except Exception as e:
-        print(f"Agent failed: {e}")
-        enriched_company = company  # fallback if anything fails
-
-    return enriched_company
+        print(f"⚠️ Tool fallback failed: {e}")
+        return company
 
 
-# ------------------------------
-# Main deep dive function (parallel)
-# ------------------------------
-def deep_dive_parallel(companies: List[Dict], criteria: str, attributes: List[str], max_workers: int = 5) -> List[Dict]:
+# ===========================
+# Public API: Parallel Deep Dive
+# ===========================
+def deep_dive_parallel(
+    companies: List[Dict],
+    criteria: str,
+    attributes: List[str],
+    max_workers: int = 5
+) -> List[Dict]:
     """
-    Runs the deep-dive agent in parallel for all companies using threads.
-    Returns a list of enriched company dicts.
+    Runs deep-dive on all companies using threading.
     """
     results = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_company = {
-            executor.submit(_process_single_company, comp, criteria, attributes): comp for comp in companies
+        futures = {
+            executor.submit(_process_single_company, c, criteria, attributes): c
+            for c in companies
         }
 
-        for future in as_completed(future_to_company):
+        for future in as_completed(futures):
             try:
                 enriched = future.result()
                 results.append(enriched)
             except Exception as e:
-                company = future_to_company[future]
-                results.append({
-                    "Company Name": company.get("Company Name", "N/A"),
-                    "error": f"Deep dive failed: {str(e)}"
-                })
+                comp = futures[future]
+                print(f"Deep dive failed for {comp.get('Company Name', 'N/A')}: {e}")
 
     return results
 
 
-# Expose public symbols
-__all__ = ["deep_dive_parallel", "deep_dive_tool"]
-
-
-# ------------------------------
-# Example usage
-# ------------------------------
+# ===========================
+# Manual test
+# ===========================
 if __name__ == "__main__":
-    sample_companies = [
+    sample = [
         {"Company Name": "Startup A", "Website": "https://a.com"},
         {"Company Name": "Startup B", "Website": "https://b.com"},
         {"Company Name": "Startup C", "Website": "https://c.com"},
     ]
 
-    enriched = deep_dive_parallel(
-        sample_companies,
-        criteria="AI infrastructure",
-        attributes=["Founders", "Year Founded"]
-    )
-    print(enriched)
+    print("\n--- Running Deep Dive ---")
+    enriched = deep_dive_parallel(sample, "AI infra", ["Founders", "Year Founded"])
+
+    print("\n--- Results ---")
+    for c in enriched:
+        print(json.dumps(c, indent=2))

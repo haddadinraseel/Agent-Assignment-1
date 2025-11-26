@@ -2,8 +2,8 @@
 import asyncio
 import sys
 import os
+import json
 from typing import Dict, List
-import requests
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
@@ -21,7 +21,7 @@ except Exception:
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # -------------------------
-# Import the new agents
+# Import the agents
 # -------------------------
 from my_agents.discovery_agent import find_companies as discovery_search
 from my_agents.deep_dive_agent import deep_dive_parallel as run_concurrent_deep_dive
@@ -51,8 +51,6 @@ app.add_middleware(
 # -------------------------
 class LinkupSearchRequest(BaseModel):
     search_criteria: str
-    location: str | None = None
-    funding_stage: str | None = None
 
 class StartupFinderRequest(BaseModel):
     search_criteria: str
@@ -66,6 +64,7 @@ class EnhanceRequest(BaseModel):
 # Helper: simple AI enhancement fallback
 # -------------------------
 def _simple_enhance(text: str) -> str:
+    # Basic grammar fix + short keywords enhancement
     words = [w.strip(".,()") for w in text.split() if len(w) > 2]
     keywords = set(words[:6])
     syn_map = {
@@ -78,11 +77,11 @@ def _simple_enhance(text: str) -> str:
         lw = w.lower()
         if lw in syn_map:
             keywords.update(syn_map[lw])
-    keywords_list = list(keywords)[:12]
-    return f"{text.strip()} | Keywords: {', '.join(keywords_list)} | Include funding stage, location, technology tags"
+    # Only one sentence output
+    return f"{text.strip()} with focus on {', '.join(list(keywords)[:6])}"
 
 # -------------------------
-# AI query enhancement endpoint
+# AI query enhancement endpoint (STRICT ONE SENTENCE)
 # -------------------------
 @app.post("/enhance_query")
 async def enhance_query(payload: EnhanceRequest) -> Dict[str, str]:
@@ -91,7 +90,7 @@ async def enhance_query(payload: EnhanceRequest) -> Dict[str, str]:
     text = payload.user_query or ""
     logger.info(f"Enhance query request received: {text[:100]}")
 
-    if AZURE_KEY and AZURE_ENDPOINT and AZURE_DEPLOYMENT:
+    if AZURE_KEY and AZURE_ENDPOINT and AZURE_DEPLOYMENT and AzureOpenAI:
         try:
             client = AzureOpenAI(
                 azure_endpoint=AZURE_ENDPOINT,
@@ -101,41 +100,60 @@ async def enhance_query(payload: EnhanceRequest) -> Dict[str, str]:
             response = client.chat.completions.create(
                 model=AZURE_DEPLOYMENT,
                 messages=[
-                    {"role": "system", "content": "You are an assistant that refines investment search queries."},
-                    {"role": "user", "content": f"Refine and expand this search criteria: {text}"}
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a query enhancement assistant. "
+                            "Output ONLY ONE CONCISE SENTENCE. "
+                            "Fix grammar and spelling. "
+                            "Clarify the user's input. "
+                            "Do NOT add examples, lists, or explanations."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Enhance this query: {text}"
+                    }
                 ],
-                max_tokens=300
+                max_tokens=50,
+                temperature=0.0
             )
             refined = response.choices[0].message.content.strip()
             return {"refined_query": refined}
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Azure OpenAI failed, using fallback: {e}")
             fallback = _simple_enhance(text)
             return {"refined_query": fallback}
 
+    # fallback if Azure not configured
     fallback = _simple_enhance(text)
     return {"refined_query": fallback}
 
 # -------------------------
-# Linkup search endpoint
+# Linkup search endpoint 
 # -------------------------
 @app.post('/linkup_search')
 async def linkup_search(payload: LinkupSearchRequest) -> Dict:
     if not LINKUP_API_KEY:
-        return {'success': False, 'error': 'LINKUP_API_KEY not configured', 'results': []}
+        return {'success': False, 'error': 'LINKUP_API_KEY not configured in environment', 'results': []}
+
     try:
-        url = 'https://api.linkup.so/v2/job_search'
-        headers = {'Authorization': f'Bearer {LINKUP_API_KEY}', 'Content-Type': 'application/json'}
-        query = payload.search_criteria
-        if payload.location:
-            query += f' location:{payload.location}'
-        if payload.funding_stage:
-            query += f' funding_stage:{payload.funding_stage}'
-        resp = requests.post(url, json={'query': query, 'limit': 20}, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            jobs = data.get('jobs', data.get('results', []))
-            return {'success': True, 'results': jobs if isinstance(jobs, list) else []}
-        return {'success': False, 'error': f'Linkup status {resp.status_code}', 'results': []}
+        from linkup import LinkupClient
+        client = LinkupClient(api_key="")
+        response = client.search(
+            query=payload.search_criteria,
+            depth="standard",
+            output_type="searchResults",
+            include_images=False,
+        )
+        if isinstance(response, list):
+            return {'success': True, 'results': response}
+        if isinstance(response, dict):
+            return {'success': True, 'results': response.get('results', [])}
+        return {'success': True, 'results': []}
+
+    except ImportError:
+        return {'success': False, 'error': "linkup package not installed. Run: pip install linkup-sdk", 'results': []}
     except Exception as e:
         return {'success': False, 'error': str(e), 'results': []}
 
@@ -143,7 +161,6 @@ async def linkup_search(payload: LinkupSearchRequest) -> Dict:
 # SSE runner for Startup Finder / Scout
 # -------------------------
 async def run_agent_and_stream(criteria: str, attributes: List[str], email: str):
-    import json
     yield 'event: status\ndata: Starting Startup Finder...\n\n'
     await asyncio.sleep(0.1)
 
@@ -154,16 +171,19 @@ async def run_agent_and_stream(criteria: str, attributes: List[str], email: str)
         if isinstance(raw_result, list):
             results = raw_result
         elif isinstance(raw_result, dict):
-            results = raw_result.get("result") or raw_result.get("text") or []
+            output_str = raw_result.get("output") or raw_result.get("result") or raw_result.get("text") or ""
+            if output_str:
+                try:
+                    results = json.loads(output_str)
+                except Exception:
+                    results = []
         elif isinstance(raw_result, str):
             try:
                 results = json.loads(raw_result)
             except Exception:
                 results = []
-        else:
-            results = []
     except Exception as e:
-        print("Discovery agent failed:", str(e))
+        print(f"Discovery agent failed: {str(e)}")
         results = []
 
     yield f'event: status\ndata: Found {len(results)} companies\n\n'
@@ -171,7 +191,6 @@ async def run_agent_and_stream(criteria: str, attributes: List[str], email: str)
     # Deep dive (parallel)
     if results:
         try:
-            # NOTE: deep_dive_parallel is synchronous, wrap it for async
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(None, run_concurrent_deep_dive, results, criteria, attributes)
         except Exception as e:
@@ -179,12 +198,11 @@ async def run_agent_and_stream(criteria: str, attributes: List[str], email: str)
 
     yield f'event: status\ndata: 🔹 Enriched results ready\n\n'
 
-    # Final results
     final_payload = json.dumps({"success": True, "results": results})
     yield f'event: complete\ndata: {final_payload}\n\n'
 
 # -------------------------
-# Run Startup Finder endpoint (SSE)
+# Run Startup Finder (SSE)
 # -------------------------
 @app.post('/run_startup_finder')
 async def run_startup_finder(payload: StartupFinderRequest):
@@ -193,18 +211,8 @@ async def run_startup_finder(payload: StartupFinderRequest):
         media_type='text/event-stream'
     )
 
-
-# Backwards-compatible alias used by the frontend
-@app.post('/run_scout')
-async def run_scout(payload: StartupFinderRequest):
-    """Alias endpoint kept for frontend compatibility (maps to run_startup_finder)."""
-    return StreamingResponse(
-        run_agent_and_stream(payload.search_criteria, payload.attributes, payload.email),
-        media_type='text/event-stream'
-    )
-
 # -------------------------
-# Run Scout endpoint (for backward compatibility)
+# Backwards-compatible alias
 # -------------------------
 @app.post('/run_scout')
 async def run_scout(payload: StartupFinderRequest):
