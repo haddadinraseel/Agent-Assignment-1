@@ -42,7 +42,7 @@ st.markdown("---")
 # State Management
 # --------------------------------------------------------------------------
 if "criteria_value" not in st.session_state:
-    st.session_state.criteria_value = "Agentic AI in healthcare, Series A, >$5M ARR"
+    st.session_state.criteria_value = ""
 
 # --------------------------------------------------------------------------
 # 1. Investment Thesis Section
@@ -51,8 +51,11 @@ st.subheader("1. Define Investment Thesis")
 
 st.info("""
 💡 **Examples:**
-- *Infra space for crypto and web3, Saudi presence, Seed stage*
-- *Agentic AI in healthcare, $5M+ ARR, Series A or B funding*
+- *AI startups in London*
+- *Enterprise SaaS AI startups based in San Francisco*
+- *Fintech startups in London at Series A*
+- *Climate tech startups in Berlin with $1M+ ARR*
+- *B2B payments companies in Europe, Seed stage*
 """)
 
 criteria_input = st.text_area(
@@ -83,26 +86,48 @@ with col_enhance:
                 st.error(f"Connection Error: {e}")
 
 # --------------------------------------------------------------------------
-# 2. Filters & Deep Dive
+# 2. Additional Criteria (Optional)
 # --------------------------------------------------------------------------
-st.subheader("2. Filters & Deep Dive")
+st.subheader("2. Additional Criteria (Optional)")
+st.caption("These will be added to your investment thesis to help narrow down results")
 
 col1, col2 = st.columns(2)
 with col1:
-    location = st.text_input("📍 Location", placeholder="e.g. San Francisco, London")
+    funding_stage = st.selectbox(
+        "💰 Funding Stage", 
+        ["Any", "Pre-Seed", "Seed", "Series A", "Series B", "Series C+", "Growth"]
+    )
+    min_arr = st.selectbox(
+        "📈 Minimum ARR",
+        ["Any", "$100K+", "$500K+", "$1M+", "$5M+", "$10M+", "$50M+"]
+    )
 with col2:
-    funding_stage = st.selectbox("💰 Funding Stage", ["Any", "Seed", "Series A", "Series B", "Growth"])
+    funding_raised = st.selectbox(
+        "💵 Total Funding Raised",
+        ["Any", "<$1M", "$1M-$5M", "$5M-$20M", "$20M-$50M", "$50M+"]
+    )
+    company_stage = st.selectbox(
+        "🏢 Company Stage",
+        ["Any", "Early Stage", "Growth Stage", "Late Stage"]
+    )
+
+st.markdown("---")
+
+# --------------------------------------------------------------------------
+# 3. Data to Extract (Deep Dive)
+# --------------------------------------------------------------------------
+st.subheader("3. Data to Extract (Deep Dive)")
 
 attributes_input = st.text_input(
-    "🔍 Data to Extract (Deep Dive)",
-    value="Website, Founders, Total Funding, Latest Valuation, Key Competitors, Location, Industry, Technology Stack"
+    "🔍 Select data points to research for each company",
+    value="Website, Founders, Total Funding, ARR, Valuation, Key Competitors, Location, Industry, Technology Stack, Year Founded"
 )
 attributes = [a.strip() for a in attributes_input.split(",")]
 
 st.markdown("---")
 
 # --------------------------------------------------------------------------
-# 3. Execution
+# 4. Execution
 # --------------------------------------------------------------------------
 run_btn = st.button("🚀 Launch Scout Agent", type="primary", use_container_width=True)
 
@@ -114,8 +139,28 @@ if run_btn:
         with st.status("🤖 Agent Workflow Running...", expanded=True) as status:
             st.write(f"📡 Connecting to Scout Agent...")
 
+            # Build enhanced search criteria from all inputs
+            search_criteria = st.session_state.criteria_value
+            additional_criteria = []
+            
+            if funding_stage != "Any":
+                additional_criteria.append(f"{funding_stage} funding")
+            if min_arr != "Any":
+                additional_criteria.append(f"ARR {min_arr}")
+            if funding_raised != "Any":
+                additional_criteria.append(f"raised {funding_raised}")
+            if company_stage != "Any":
+                additional_criteria.append(f"{company_stage}")
+            
+            if additional_criteria:
+                search_criteria = f"{search_criteria}, {', '.join(additional_criteria)}"
+            
+            st.write(f"🔍 Searching for: *{search_criteria}*")
+
             payload = {
-                "search_criteria": f"{st.session_state.criteria_value} {location if location else ''} {funding_stage if funding_stage != 'Any' else ''}",
+                "search_criteria": search_criteria,
+                "location": "",  # No separate location filter - included in thesis
+                "funding_stage": funding_stage if funding_stage != "Any" else "",
                 "attributes": attributes,
                 "email": "user@example.com"
             }
@@ -165,11 +210,14 @@ with results_container:
                 "Company Name": company.get("Company Name", "Unknown"),
                 "Description": company.get("Description", "N/A"),
                 "Website": company.get("Website", "N/A"),
-                "Funding": company.get("Funding", company.get("Total Funding", "N/A")),
-                "Valuation": company.get("Valuation", company.get("Latest Valuation", "N/A")),
-                "Founders": company.get("Founders", "N/A"),
                 "Location": company.get("Location", "N/A"),
                 "Industry": company.get("Industry", "N/A"),
+                "Funding Stage": company.get("Funding Stage", company.get("funding_stage", "N/A")),
+                "Total Funding": company.get("Total Funding", company.get("Funding", "N/A")),
+                "ARR": company.get("ARR", "N/A"),
+                "Valuation": company.get("Valuation", company.get("Latest Valuation", "N/A")),
+                "Founders": company.get("Founders", "N/A"),
+                "Year Founded": company.get("Year Founded", "N/A"),
                 "Technology Stack": company.get("Technology Stack", "N/A")
             })
         
@@ -180,9 +228,48 @@ with results_container:
             df,
             use_container_width=True,
             hide_index=True,
+            height=min(500, 50 + len(df) * 40),
             column_config={
-                "Website": st.column_config.LinkColumn("Website"),
-                "Description": st.column_config.TextColumn("Description", width="large"),
-                "Company Name": st.column_config.TextColumn("Company Name", width="medium"),
+                "Company Name": st.column_config.TextColumn("Company", width=140),
+                "Description": st.column_config.TextColumn("Description", width=300),
+                "Website": st.column_config.LinkColumn("Website", width=120),
+                "Location": st.column_config.TextColumn("Location", width=120),
+                "Industry": st.column_config.TextColumn("Industry", width=120),
+                "Funding Stage": st.column_config.TextColumn("Stage", width=90),
+                "Total Funding": st.column_config.TextColumn("Funding", width=100),
+                "ARR": st.column_config.TextColumn("ARR", width=80),
+                "Valuation": st.column_config.TextColumn("Valuation", width=100),
+                "Founders": st.column_config.TextColumn("Founders", width=180),
+                "Year Founded": st.column_config.TextColumn("Founded", width=80),
+                "Technology Stack": st.column_config.TextColumn("Tech Stack", width=160),
             }
         )
+        
+        # Download buttons
+        st.markdown("### 📥 Download Results")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # CSV download
+            csv_data = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📄 Download CSV",
+                data=csv_data,
+                file_name="startup_scout_results.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        with col2:
+            # Excel download
+            from io import BytesIO
+            excel_buffer = BytesIO()
+            df.to_excel(excel_buffer, index=False, engine='openpyxl')
+            excel_data = excel_buffer.getvalue()
+            st.download_button(
+                label="📊 Download Excel",
+                data=excel_data,
+                file_name="startup_scout_results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )

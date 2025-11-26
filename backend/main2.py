@@ -54,6 +54,8 @@ class LinkupSearchRequest(BaseModel):
 
 class StartupFinderRequest(BaseModel):
     search_criteria: str
+    location: str = ""  # Optional location filter
+    funding_stage: str = ""  # Optional funding stage filter
     attributes: List[str]
     email: str  # required for SSE but not actually used
 
@@ -64,7 +66,6 @@ class EnhanceRequest(BaseModel):
 # Helper: simple AI enhancement fallback
 # -------------------------
 def _simple_enhance(text: str) -> str:
-    # Basic grammar fix + short keywords enhancement
     words = [w.strip(".,()") for w in text.split() if len(w) > 2]
     keywords = set(words[:6])
     syn_map = {
@@ -77,7 +78,6 @@ def _simple_enhance(text: str) -> str:
         lw = w.lower()
         if lw in syn_map:
             keywords.update(syn_map[lw])
-    # Only one sentence output
     return f"{text.strip()} with focus on {', '.join(list(keywords)[:6])}"
 
 # -------------------------
@@ -125,7 +125,6 @@ async def enhance_query(payload: EnhanceRequest) -> Dict[str, str]:
             fallback = _simple_enhance(text)
             return {"refined_query": fallback}
 
-    # fallback if Azure not configured
     fallback = _simple_enhance(text)
     return {"refined_query": fallback}
 
@@ -160,14 +159,36 @@ async def linkup_search(payload: LinkupSearchRequest) -> Dict:
 # -------------------------
 # SSE runner for Startup Finder / Scout
 # -------------------------
-async def run_agent_and_stream(criteria: str, attributes: List[str], email: str):
-    yield 'event: status\ndata: Starting Startup Finder...\n\n'
+async def run_agent_and_stream(criteria: str, location: str, funding_stage: str, attributes: List[str], email: str):
+    """
+    Main pipeline:
+    1. Build investment thesis from user input
+    2. Call Discovery Agent (Linkup structured search)
+    3. Call Deep Dive Agent (Linkup fetch + LLM enrichment)
+    4. Return results (NO post-filtering - filtering is done by Linkup based on the thesis)
+    """
+    yield 'event: status\ndata: 🚀 Starting Startup Scout...\n\n'
     await asyncio.sleep(0.1)
 
-    # Discovery
+    # Build the investment thesis from user input
+    # The thesis is the ONLY filter - Linkup will search for companies matching it
+    investment_thesis = criteria
+    if location:
+        investment_thesis += f" in {location}"
+    if funding_stage and funding_stage.lower() != "any":
+        investment_thesis += f", {funding_stage} stage"
+    
+    print(f"\n{'='*60}")
+    print(f"📋 Investment Thesis: {investment_thesis}")
+    print(f"📊 Attributes to extract: {attributes}")
+    print(f"{'='*60}\n")
+
+    yield f'event: status\ndata: 🔍 Searching for: {investment_thesis}\n\n'
+
+    # Step 1: Discovery - find companies matching the thesis
     results = []
     try:
-        raw_result = discovery_search(criteria)
+        raw_result = discovery_search(investment_thesis)
         if isinstance(raw_result, list):
             results = raw_result
         elif isinstance(raw_result, dict):
@@ -183,20 +204,40 @@ async def run_agent_and_stream(criteria: str, attributes: List[str], email: str)
             except Exception:
                 results = []
     except Exception as e:
-        print(f"Discovery agent failed: {str(e)}")
+        print(f"❌ Discovery agent failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         results = []
 
-    yield f'event: status\ndata: Found {len(results)} companies\n\n'
+    print(f"✅ Discovery found {len(results)} companies")
+    yield f'event: status\ndata: 📦 Found {len(results)} companies\n\n'
 
-    # Deep dive (parallel)
-    if results:
+    # Step 2: Deep Dive - enrich each company with additional attributes
+    if results and attributes:
+        yield f'event: status\ndata: 🔬 Enriching company data...\n\n'
         try:
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, run_concurrent_deep_dive, results, criteria, attributes)
+            results = await loop.run_in_executor(
+                None, 
+                run_concurrent_deep_dive, 
+                results, 
+                investment_thesis, 
+                attributes
+            )
         except Exception as e:
-            print("Deep dive agent failed:", str(e))
+            print(f"❌ Deep dive agent failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
-    yield f'event: status\ndata: 🔹 Enriched results ready\n\n'
+    # Clean up None values
+    cleaned_results = []
+    for c in results:
+        cleaned = {k: (v if v is not None else "N/A") for k, v in c.items()}
+        cleaned_results.append(cleaned)
+    results = cleaned_results
+
+    print(f"✅ Final results: {len(results)} companies")
+    yield f'event: status\ndata: ✅ Complete! Found {len(results)} companies\n\n'
 
     final_payload = json.dumps({"success": True, "results": results})
     yield f'event: complete\ndata: {final_payload}\n\n'
@@ -207,7 +248,7 @@ async def run_agent_and_stream(criteria: str, attributes: List[str], email: str)
 @app.post('/run_startup_finder')
 async def run_startup_finder(payload: StartupFinderRequest):
     return StreamingResponse(
-        run_agent_and_stream(payload.search_criteria, payload.attributes, payload.email),
+        run_agent_and_stream(payload.search_criteria, payload.location, payload.funding_stage, payload.attributes, payload.email),
         media_type='text/event-stream'
     )
 
@@ -217,7 +258,7 @@ async def run_startup_finder(payload: StartupFinderRequest):
 @app.post('/run_scout')
 async def run_scout(payload: StartupFinderRequest):
     return StreamingResponse(
-        run_agent_and_stream(payload.search_criteria, payload.attributes, payload.email),
+        run_agent_and_stream(payload.search_criteria, payload.location, payload.funding_stage, payload.attributes, payload.email),
         media_type='text/event-stream'
     )
 
