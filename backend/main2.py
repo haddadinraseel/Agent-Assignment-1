@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import logging
 
-# optional Azure OpenAI
+
 try:
     from openai import AzureOpenAI
 except Exception:
@@ -19,21 +19,19 @@ except Exception:
 
 # make agents importable
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Load environment early so agent modules can read env vars during import
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # -------------------------
 # Import the agents
 # -------------------------
-from my_agents.discovery_agent import find_companies as discovery_search
-from my_agents.deep_dive_agent import deep_dive_parallel as run_concurrent_deep_dive
-
-# -------------------------
-# Load environment
-# -------------------------
 load_dotenv("./.env")
+from my_agents import final_agents
 LINKUP_API_KEY = os.getenv('LINKUP_API_KEY')
 AZURE_KEY = os.getenv('AZURE_OPENAI_KEY')
 AZURE_ENDPOINT = os.getenv('AZURE_OPENAI_GPT_ENDPOINT')
-AZURE_DEPLOYMENT = os.getenv('AZURE_OPENAI_GPT_DEPLOYMENT_NAME')
+# Prefer the generic deployment name if present, otherwise fall back to the GPT-specific var
+AZURE_DEPLOYMENT = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
 
 # -------------------------
 # FastAPI app
@@ -137,8 +135,12 @@ async def linkup_search(payload: LinkupSearchRequest) -> Dict:
         return {'success': False, 'error': 'LINKUP_API_KEY not configured in environment', 'results': []}
 
     try:
-        from linkup import LinkupClient
-        client = LinkupClient(api_key="")
+        # linkup-sdk 0.9.0 exports from linkup._client
+        try:
+            from linkup._client import LinkupClient
+        except ImportError:
+            from linkup import LinkupClient
+        client = LinkupClient(api_key=LINKUP_API_KEY)
         response = client.search(
             query=payload.search_criteria,
             depth="standard",
@@ -185,49 +187,24 @@ async def run_agent_and_stream(criteria: str, location: str, funding_stage: str,
 
     yield f'event: status\ndata: 🔍 Searching for: {investment_thesis}\n\n'
 
-    # Step 1: Discovery - find companies matching the thesis
+    # Use consolidated pipeline from my_agents.final_agents
     results = []
     try:
-        raw_result = discovery_search(investment_thesis)
-        if isinstance(raw_result, list):
-            results = raw_result
-        elif isinstance(raw_result, dict):
-            output_str = raw_result.get("output") or raw_result.get("result") or raw_result.get("text") or ""
-            if output_str:
-                try:
-                    results = json.loads(output_str)
-                except Exception:
-                    results = []
-        elif isinstance(raw_result, str):
-            try:
-                results = json.loads(raw_result)
-            except Exception:
-                results = []
+        yield f'event: status\ndata: 🔍 Running consolidated pipeline...\n\n'
+        results = await final_agents.run_pipeline(investment_thesis, attributes)
+        if not isinstance(results, list):
+            # Ensure results is a list
+            results = results if results is not None else []
+            if isinstance(results, dict):
+                results = [results]
     except Exception as e:
-        print(f"❌ Discovery agent failed: {str(e)}")
+        print(f"❌ Pipeline failed: {str(e)}")
         import traceback
         traceback.print_exc()
         results = []
 
-    print(f"✅ Discovery found {len(results)} companies")
+    print(f"✅ Pipeline returned {len(results)} companies")
     yield f'event: status\ndata: 📦 Found {len(results)} companies\n\n'
-
-    # Step 2: Deep Dive - enrich each company with additional attributes
-    if results and attributes:
-        yield f'event: status\ndata: 🔬 Enriching company data...\n\n'
-        try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None, 
-                run_concurrent_deep_dive, 
-                results, 
-                investment_thesis, 
-                attributes
-            )
-        except Exception as e:
-            print(f"❌ Deep dive agent failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
 
     # Clean up None values
     cleaned_results = []
@@ -245,22 +222,15 @@ async def run_agent_and_stream(criteria: str, location: str, funding_stage: str,
 # -------------------------
 # Run Startup Finder (SSE)
 # -------------------------
-@app.post('/run_startup_finder')
-async def run_startup_finder(payload: StartupFinderRequest):
+
+@app.post('/run_scout')
+async def run_scout(payload: StartupFinderRequest):
+    """Compatibility route: some frontends post to /run_scout — forward to the same SSE pipeline."""
     return StreamingResponse(
         run_agent_and_stream(payload.search_criteria, payload.location, payload.funding_stage, payload.attributes, payload.email),
         media_type='text/event-stream'
     )
 
-# -------------------------
-# Backwards-compatible alias
-# -------------------------
-@app.post('/run_scout')
-async def run_scout(payload: StartupFinderRequest):
-    return StreamingResponse(
-        run_agent_and_stream(payload.search_criteria, payload.location, payload.funding_stage, payload.attributes, payload.email),
-        media_type='text/event-stream'
-    )
 
 # -------------------------
 # Root
