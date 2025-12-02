@@ -26,7 +26,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 # Import the agents
 # -------------------------
 load_dotenv("./.env")
-from my_agents import final_agents
+from my_agents import final_agents 
+from my_agents.conversational_agent import conversational_agent
 LINKUP_API_KEY = os.getenv('LINKUP_API_KEY')
 AZURE_KEY = os.getenv('AZURE_OPENAI_KEY')
 AZURE_ENDPOINT = os.getenv('AZURE_OPENAI_GPT_ENDPOINT')
@@ -59,6 +60,10 @@ class StartupFinderRequest(BaseModel):
 
 class EnhanceRequest(BaseModel):
     user_query: str
+
+class ChatRequest(BaseModel):
+    message: str
+    conversation_history: List[dict] = []
 
 # -------------------------
 # Helper: simple AI enhancement fallback
@@ -230,6 +235,150 @@ async def run_scout(payload: StartupFinderRequest):
         run_agent_and_stream(payload.search_criteria, payload.location, payload.funding_stage, payload.attributes, payload.email),
         media_type='text/event-stream'
     )
+
+
+# -------------------------
+# Chat endpoint (Conversational Agent) - SSE Streaming
+# -------------------------
+async def chat_stream_generator(message: str, conversation_history: List[dict]):
+    """
+    SSE generator for chat endpoint with status updates.
+    """
+    import time
+    
+    try:
+        yield 'event: status\ndata: 🤖 Processing your request...\n\n'
+        await asyncio.sleep(0.1)
+        
+        # Build messages list with history
+        messages = []
+        
+        # Add conversation history
+        for msg in conversation_history:
+            if msg.get("role") == "user":
+                messages.append({"role": "user", "content": msg.get("content", "")})
+            elif msg.get("role") == "assistant":
+                messages.append({"role": "assistant", "content": msg.get("content", "")})
+        
+        # Add current message
+        messages.append({"role": "user", "content": message})
+        
+        yield 'event: status\ndata: 🔍 Analyzing query and selecting tools...\n\n'
+        await asyncio.sleep(0.1)
+        
+        # Invoke agent with full conversation history
+        result = conversational_agent.invoke({"messages": messages})
+        
+        # Extract the final response from messages
+        response_messages = result.get("messages", [])
+        
+        # Check if any tools were used and report
+        tool_used = None
+        for msg in response_messages:
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                tool_used = msg.tool_calls[0].get('name') if isinstance(msg.tool_calls[0], dict) else msg.tool_calls[0].name
+                yield f'event: status\ndata: 🛠️ Using tool: {tool_used}...\n\n'
+                await asyncio.sleep(0.1)
+                break
+        
+        if response_messages:
+            last_message = response_messages[-1]
+            # Get content from the last message
+            if hasattr(last_message, 'content'):
+                response_text = last_message.content
+            else:
+                response_text = str(last_message)
+        else:
+            response_text = "No response generated."
+        
+        yield 'event: status\ndata: ✅ Response ready!\n\n'
+        await asyncio.sleep(0.1)
+        
+        # Send final response
+        final_payload = json.dumps({
+            "success": True,
+            "response": response_text,
+            "tool_used": tool_used
+        })
+        yield f'event: complete\ndata: {final_payload}\n\n'
+        
+    except Exception as e:
+        error_payload = json.dumps({
+            "success": False,
+            "response": f"Error: {str(e)}",
+            "tool_used": None
+        })
+        yield f'event: error\ndata: {error_payload}\n\n'
+
+
+@app.post('/chat')
+async def chat(payload: ChatRequest):
+    """
+    Conversational endpoint with SSE streaming.
+    Agent decides which tool to use.
+    Supports conversation history for context.
+    """
+    return StreamingResponse(
+        chat_stream_generator(payload.message, payload.conversation_history),
+        media_type='text/event-stream'
+    )
+
+
+# -------------------------
+# Non-streaming chat endpoint (for compatibility)
+# -------------------------
+@app.post('/chat_sync')
+async def chat_sync(payload: ChatRequest):
+    """
+    Non-streaming conversational endpoint - returns JSON directly.
+    """
+    try:
+        # Build messages list with history
+        messages = []
+        
+        # Add conversation history
+        for msg in payload.conversation_history:
+            if msg.get("role") == "user":
+                messages.append({"role": "user", "content": msg.get("content", "")})
+            elif msg.get("role") == "assistant":
+                messages.append({"role": "assistant", "content": msg.get("content", "")})
+        
+        # Add current message
+        messages.append({"role": "user", "content": payload.message})
+        
+        # Invoke agent with full conversation history
+        result = conversational_agent.invoke({"messages": messages})
+        
+        # Extract the final response from messages
+        response_messages = result.get("messages", [])
+        if response_messages:
+            last_message = response_messages[-1]
+            # Get content from the last message
+            if hasattr(last_message, 'content'):
+                response_text = last_message.content
+            else:
+                response_text = str(last_message)
+        else:
+            response_text = "No response generated."
+        
+        # Check if any tools were used
+        tool_used = None
+        for msg in response_messages:
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                tool_used = msg.tool_calls[0].get('name') if isinstance(msg.tool_calls[0], dict) else msg.tool_calls[0].name
+                break
+        
+        return {
+            "success": True,
+            "response": response_text,
+            "tool_used": tool_used
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "response": f"Error: {str(e)}",
+            "tool_used": None
+        }
 
 
 # -------------------------

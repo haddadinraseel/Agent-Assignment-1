@@ -1,1154 +1,1367 @@
-# frontend_copy.py — Modern Startup Scout UI
-
+"""
+Conversational Streamlit App for Startup Scouting
+Clean professional UI with SSE support and enhanced UX
+"""
 import streamlit as st
 import requests
 import json
 import pandas as pd
-from io import BytesIO
+import io
+import re
+import markdown
+from datetime import datetime
 
 # ==========================================================================
 # PAGE CONFIGURATION
 # ==========================================================================
 st.set_page_config(
-    page_title="Investment Sourcing Agent | Arab Bank Ventures",
-    page_icon="🎯",
+    page_title="AB Scout - Arab Bank Startup Intelligence",
+    page_icon="🏦",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # ==========================================================================
-# CUSTOM CSS - Professional Enterprise Theme
+# CUSTOM CSS - Clean White & Blue Ombre Professional Theme
 # ==========================================================================
 st.markdown("""
 <style>
-    /* ===== Root Variables - Custom Color Palette ===== */
-    :root {
-        --curious-blue: #1680E4;
-        --blue-ribbon: #0671FF;
-        --oslo-gray: #939598;
-        --emperor: #555354;
-        --persian-blue: #2B1CA9;
-        --surface: #ffffff;
-        --border: #e2e8f0;
-        --border-light: #f1f3f5;
-        --text-primary: #555354;
-        --text-secondary: #939598;
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* ===== Global Styles - Subtle Gradient Background ===== */
-    .main { 
-        background: linear-gradient(180deg, #f8faff 0%, #f0f4ff 50%, #ffffff 100%) !important;
+    /* Main background - white with subtle blue ombre */
+    .main {
+        background: linear-gradient(180deg, #ffffff 0%, #f0f7ff 50%, #e8f4fd 100%);
     }
     
     .stApp {
-        background: linear-gradient(180deg, #f8faff 0%, #f0f4ff 50%, #ffffff 100%) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f0f7ff 50%, #e8f4fd 100%);
     }
     
-    .block-container {
-        padding: 2rem 2rem 4rem 2rem !important;
-        max-width: 800px !important;
-        margin: 0 auto !important;
-        background: transparent;
+    /* Header - minimal */
+    .main-header {
+        text-align: center;
+        padding: 1rem 0 0.5rem 0;
     }
     
-    /* ===== Section Wrapper - Subtle Frosted White ===== */
-    .section-wrapper {
-        background: rgba(255, 255, 255, 0.55);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.6);
-        border-radius: 20px;
-        padding: 1.75rem 2rem 1.25rem 2rem;
-        margin-bottom: 0.5rem;
-        box-shadow: 0 4px 24px rgba(43, 28, 169, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
-        transition: all 0.3s ease;
-    }
-    
-    .section-wrapper:hover {
-        box-shadow: 0 8px 32px rgba(22, 128, 228, 0.08), 0 2px 6px rgba(0, 0, 0, 0.03);
-        border-color: rgba(22, 128, 228, 0.15);
-    }
-    
-    /* Section Divider/Spacer */
-    .section-divider {
-        height: 2.5rem;
+    .main-header h1 {
+        color: #1e293b;
+        font-size: 1.25rem;
+        font-weight: 600;
         margin: 0;
+        letter-spacing: -0.01em;
     }
     
-    /* ===== Typography ===== */
-    h1, h2, h3 { 
-        color: var(--emperor) !important;
-        font-weight: 700 !important;
+    .main-header p {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        margin: 0.25rem 0 0 0;
     }
     
-    /* ===== Hero Header ===== */
-    .hero {
-        background: linear-gradient(135deg, var(--persian-blue) 0%, var(--blue-ribbon) 100%);
-        border-radius: 0;
-        padding: 2.5rem 3rem;
-        margin-bottom: 0;
-        color: white;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .hero-inner {
-        max-width: 800px;
-        margin: 0 auto;
-    }
-    
-    .hero::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        right: -10%;
-        width: 400px;
-        height: 400px;
-        background: radial-gradient(circle, rgba(22, 128, 228, 0.25) 0%, transparent 70%);
-        border-radius: 50%;
-    }
-    
-    .hero-title {
-        font-size: 2.25rem;
-        font-weight: 800;
-        margin-bottom: 0.5rem;
-        position: relative;
-        color: white !important;
-    }
-    
-    .hero-subtitle {
-        font-size: 1.1rem;
-        opacity: 0.9;
-        font-weight: 400;
-        position: relative;
-    }
-    
-    .hero-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(255,255,255,0.2);
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        margin-top: 1rem;
-        position: relative;
-    }
-    
-    /* ===== Form Elements - Glass Style ===== */
-    .stTextArea textarea {
-        border-radius: 14px !important;
-        border: 1px solid rgba(22, 128, 228, 0.2) !important;
-        padding: 1rem !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s ease !important;
-        background: rgba(255, 255, 255, 0.8) !important;
-        backdrop-filter: blur(10px) !important;
-    }
-    
-    .stTextArea textarea:focus {
-        border-color: var(--curious-blue) !important;
-        box-shadow: 0 0 0 4px rgba(22, 128, 228, 0.1), 0 4px 20px rgba(22, 128, 228, 0.15) !important;
-        background: rgba(255, 255, 255, 0.95) !important;
-    }
-    
-    .stSelectbox > div > div {
-        border-radius: 12px !important;
-        border: 1px solid rgba(22, 128, 228, 0.2) !important;
-        background: rgba(255, 255, 255, 0.8) !important;
-        backdrop-filter: blur(10px) !important;
-    }
-    
-    .stSelectbox > div > div:hover {
-        border-color: var(--curious-blue) !important;
-        background: rgba(255, 255, 255, 0.95) !important;
-    }
-    
-    /* ===== Buttons - Glass Style ===== */
-    .stButton > button {
-        border-radius: 14px !important;
-        font-weight: 600 !important;
-        padding: 0.75rem 1.5rem !important;
-        transition: all 0.3s ease !important;
-        border: none !important;
-    }
-    
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, var(--blue-ribbon) 0%, var(--curious-blue) 100%) !important;
-        color: white !important;
-        box-shadow: 0 4px 20px rgba(6, 113, 255, 0.4) !important;
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(6, 113, 255, 0.45) !important;
-        background: linear-gradient(135deg, var(--curious-blue) 0%, var(--persian-blue) 100%) !important;
-    }
-    
-    .stButton > button[kind="secondary"], 
-    .stButton > button:not([kind="primary"]) {
-        background: #ffffff !important;
-        color: var(--emperor) !important;
-        border: 2px solid var(--border) !important;
-    }
-    
-    .stButton > button[kind="secondary"]:hover,
-    .stButton > button:not([kind="primary"]):hover {
-        border-color: var(--curious-blue) !important;
-        color: var(--curious-blue) !important;
-        background: rgba(22, 128, 228, 0.05) !important;
-    }
-    
-    /* ===== Multiselect ===== */
-    .stMultiSelect span[data-baseweb="tag"] {
-        background: var(--curious-blue) !important;
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-    }
-    
-    .stMultiSelect > div > div {
-        border-radius: 10px !important;
-        border: 2px solid var(--border) !important;
-        background: #ffffff !important;
-    }
-    
-    .stMultiSelect > div > div:hover,
-    .stMultiSelect > div > div:focus-within {
-        border-color: var(--curious-blue) !important;
-    }
-    
-    /* ===== Section Header ===== */
-    .section-header {
+    /* Message row with avatar */
+    .message-row {
         display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 1rem;
+        align-items: flex-start;
+        gap: 10px;
+        margin: 12px 0;
+        animation: fadeIn 0.25s ease-out;
     }
     
-    .section-number {
+    .message-row.user {
+        flex-direction: row-reverse;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Avatars */
+    .avatar {
         width: 32px;
         height: 32px;
         border-radius: 50%;
-        background: linear-gradient(135deg, var(--blue-ribbon) 0%, var(--curious-blue) 100%);
-        color: white;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 700;
+        font-size: 0.75rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+    
+    .avatar.user {
+        background: #0671FF;
+        color: #ffffff;
+    }
+    
+    .avatar.bot {
+        background: #2B1CA9;
+        color: #ffffff;
+    }
+    
+    /* Simple chat bubble - same style for both */
+    .chat-bubble {
+        background: #ffffff;
+        color: #374151;
+        padding: 16px 20px;
+        border-radius: 12px;
+        max-width: 85%;
         font-size: 0.9rem;
+        line-height: 1.7;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     }
     
-    .section-title {
-        font-size: 1.25rem;
+    .chat-bubble.user {
+        background: linear-gradient(135deg, #1680E4 0%, #0671FF 100%);
+        color: #ffffff;
+        border: none;
+    }
+    
+    /* Numbered list styling for company results */
+    .chat-bubble ol {
+        padding-left: 0;
+        margin: 0.5rem 0;
+        list-style: none;
+        counter-reset: item;
+    }
+    
+    .chat-bubble ol > li {
+        counter-increment: item;
+        margin-bottom: 1.25rem;
+        padding-left: 2rem;
+        position: relative;
+    }
+    
+    .chat-bubble ol > li::before {
+        content: counter(item) ".";
+        position: absolute;
+        left: 0;
         font-weight: 700;
-        color: var(--emperor);
-        margin: 0;
-    }
-    
-    /* ===== Section Divider ===== */
-    .section-divider {
-        height: 1px;
-        background: linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%);
-        margin: 2rem 0;
-    }
-    
-    /* ===== Status Messages ===== */
-    .stSuccess {
-        border-radius: 12px !important;
-        background-color: rgba(22, 128, 228, 0.1) !important;
-        border-left: 4px solid var(--curious-blue) !important;
-    }
-    
-    .stWarning {
-        border-radius: 12px !important;
-    }
-    
-    .stError {
-        border-radius: 12px !important;
-    }
-    
-    .stInfo {
-        border-radius: 12px !important;
-        background-color: rgba(43, 28, 169, 0.08) !important;
-        border-left: 4px solid var(--persian-blue) !important;
-    }
-    
-    /* ===== Data Table ===== */
-    .stDataFrame {
-        border-radius: 12px !important;
-        overflow: hidden !important;
-        border: 1px solid var(--border) !important;
-    }
-    
-    /* ===== Expander ===== */
-    .streamlit-expanderHeader {
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        color: var(--emperor) !important;
-        background: #ffffff !important;
-        padding: 1rem 1.25rem !important;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        color: var(--curious-blue) !important;
-        background: #f8fafc !important;
-    }
-    
-    /* Make expander content wider */
-    [data-testid="stExpander"] {
-        border: 1px solid var(--border) !important;
-        border-radius: 14px !important;
-        margin-bottom: 12px !important;
-        overflow: hidden !important;
-    }
-    
-    [data-testid="stExpander"] > div {
-        padding: 0 !important;
-    }
-    
-    .streamlit-expanderContent {
-        padding: 1.25rem !important;
-        background: #ffffff !important;
-        border-top: 1px solid var(--border-light) !important;
-    }
-        color: var(--emperor) !important;
-        background: #ffffff !important;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        color: var(--curious-blue) !important;
-    }
-    
-    /* ===== Tooltip Styling ===== */
-    .tooltip-text {
-        font-size: 0.8rem;
-        color: var(--oslo-gray);
-        font-style: italic;
-    }
-    
-    /* ===== Animation ===== */
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.6; }
-    }
-    
-    .pulse {
-        animation: pulse 2s infinite;
-    }
-    
-    /* ===== Company Cards ===== */
-    .company-cards-container {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        margin: 1.5rem 0;
-    }
-    
-    .company-card-wrapper {
-        background: var(--surface);
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        overflow: hidden;
-        transition: all 0.2s ease;
-    }
-    
-    .company-card-wrapper:hover {
-        border-color: var(--curious-blue);
-        box-shadow: 0 4px 16px rgba(22, 128, 228, 0.1);
-    }
-    
-    .company-card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 1rem 1.25rem;
-        cursor: pointer;
-        background: linear-gradient(135deg, #fafbfc 0%, #ffffff 100%);
-    }
-    
-    .company-card-header:hover {
-        background: linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%);
-    }
-    
-    .company-card-title-section {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-    }
-    
-    .company-avatar {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, var(--curious-blue) 0%, var(--persian-blue) 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: 700;
+        color: #2B1CA9;
         font-size: 1rem;
     }
     
-    .company-card-name {
-        font-size: 1.05rem;
-        font-weight: 600;
-        color: var(--emperor);
-        margin: 0;
+    .chat-bubble ol > li > strong:first-child,
+    .chat-bubble ol > li > p:first-child > strong:first-child {
+        font-size: 1rem;
+        color: #1e293b;
+        display: block;
+        margin-bottom: 0.5rem;
     }
     
-    .company-card-tags {
-        display: flex;
-        gap: 8px;
-        margin-top: 4px;
+    /* Nested unordered list (details) */
+    .chat-bubble ul {
+        list-style: disc;
+        padding-left: 1.25rem;
+        margin: 0.5rem 0;
     }
     
-    .company-tag {
-        font-size: 0.7rem;
-        padding: 3px 10px;
-        border-radius: 12px;
-        font-weight: 500;
-    }
-    
-    .company-tag.sector {
-        background: rgba(43, 28, 169, 0.1);
-        color: var(--persian-blue);
-    }
-    
-    .company-tag.country {
-        background: rgba(22, 128, 228, 0.1);
-        color: var(--curious-blue);
-    }
-    
-    .company-tag.stage {
-        background: rgba(147, 149, 152, 0.15);
-        color: var(--emperor);
-    }
-    
-    .company-card-details {
-        padding: 0 1.25rem 1.25rem 1.25rem;
-        border-top: 1px solid var(--border-light);
-        background: #ffffff;
-    }
-    
-    .company-detail-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 16px;
-        margin-top: 1rem;
-    }
-    
-    .company-detail-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    
-    .company-detail-label {
-        font-size: 0.7rem;
-        color: var(--oslo-gray);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-weight: 600;
-    }
-    
-    .company-detail-value {
-        font-size: 0.9rem;
-        color: var(--emperor);
-        font-weight: 500;
-    }
-    
-    .company-detail-value a {
-        color: var(--curious-blue);
-        text-decoration: none;
-    }
-    
-    .company-detail-value a:hover {
-        text-decoration: underline;
-    }
-    
-    .company-description {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-light);
-    }
-    
-    .company-description-text {
-        font-size: 0.9rem;
-        color: var(--text-primary);
+    .chat-bubble ul li {
+        margin-bottom: 0.35rem;
+        color: #555354;
+        font-size: 0.875rem;
         line-height: 1.6;
     }
     
-    /* View toggle buttons */
-    .view-toggle-container {
+    .chat-bubble ul li strong {
+        color: #374151;
+        font-weight: 600;
+    }
+    
+    /* Links styling */
+    .chat-bubble a {
+        color: #0671FF;
+        text-decoration: none;
+    }
+    
+    .chat-bubble a:hover {
+        text-decoration: underline;
+    }
+    
+    /* Paragraphs */
+    .chat-bubble p {
+        margin: 0.5rem 0;
+    }
+    
+    .chat-bubble p:first-child {
+        margin-top: 0;
+    }
+    
+    /* Message timestamp */
+    .msg-time {
+        font-size: 0.7rem;
+        color: #9ca3af;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #f1f5f9;
+    }
+    
+    .chat-bubble.user .msg-time {
+        color: rgba(255,255,255,0.7);
+        border-top-color: rgba(255,255,255,0.2);
+    }
+    
+    /* Tool badge */
+    .tool-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #e8f4fd 0%, #f0f0ff 100%);
+        color: #2B1CA9;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+        border: 1px solid #c7d2fe;
+    }
+    
+    /* Status message */
+    .status-msg {
+        color: #6b7280;
+        font-size: 0.85rem;
+        font-style: italic;
+    }
+    
+    /* Table styling */
+    .chat-bubble table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0.75rem 0;
+        font-size: 0.85rem;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+    }
+    
+    .chat-bubble th {
+        background: #f8fafc;
+        color: #374151;
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .chat-bubble td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f1f5f9;
+        color: #374151;
+    }
+    
+    .chat-bubble tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .chat-bubble tr:hover td {
+        background: #f8fafc;
+    }
+    
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
+        background: #f8fafc;
+        border-right: 1px solid #e2e8f0;
+    }
+    
+    section[data-testid="stSidebar"] > div {
+        padding-top: 0.75rem;
+    }
+    
+    .sidebar-header {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 0.75rem;
+        background: #ffffff;
+    }
+    
+    .sidebar-brand {
         display: flex;
+        align-items: center;
         gap: 8px;
+    }
+    
+    .sidebar-logo {
+        width: 28px;
+        height: 28px;
+        background: linear-gradient(135deg, #2B1CA9 0%, #0671FF 100%);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .sidebar-logo svg {
+        width: 14px;
+        height: 14px;
+    }
+    
+    .sidebar-brand-text {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1e293b;
+    }
+    
+    .sidebar-section-title {
+        color: #64748b;
+        font-size: 0.7rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.5rem 1rem 0.25rem 1rem;
+    }
+    
+    .chat-history-item {
+        padding: 8px 12px;
+        margin: 2px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        color: #475569;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .chat-history-item:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+    
+    .chat-history-item.active {
+        background: #e8f4fd;
+        border-color: #0671FF;
+        color: #2B1CA9;
+    }
+    
+    /* Tool badge */
+    .tool-badge {
+        display: inline-block;
+        background: #e8f4fd;
+        color: #0671FF;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.65rem;
+        font-weight: 500;
+        margin-bottom: 6px;
+        border: 1px solid #c7e4fd;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    
+    /* Status/SSE message */
+    .status-msg {
+        background: #f8fafc;
+        color: #0671FF;
+        padding: 8px 12px;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        border-left: 3px solid #0671FF;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        max-width: 80%;
+    }
+    
+    .status-msg::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        background: #0671FF;
+        border-radius: 50%;
+        animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    
+    /* Streaming text animation */
+    .streaming-text {
+        overflow: hidden;
+    }
+    
+    @keyframes typewriter {
+        from { max-height: 0; }
+        to { max-height: 2000px; }
+    }
+    
+    .typing-cursor {
+        display: inline-block;
+        width: 2px;
+        height: 1em;
+        background: #0671FF;
+        margin-left: 2px;
+        animation: blink 0.8s infinite;
+        vertical-align: text-bottom;
+    }
+    
+    @keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0; }
+    }
+    
+    /* Input area styling */
+    .stTextInput > div > div > input {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 10px !important;
+        padding: 12px 16px !important;
+        color: #1e293b !important;
+        font-size: 0.9rem !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+    }
+    
+    .stTextInput > div > div > input::placeholder {
+        color: #9ca3af !important;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #0671FF !important;
+        box-shadow: 0 0 0 3px rgba(6, 113, 255, 0.1) !important;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #1680E4 0%, #0671FF 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 1px 3px rgba(6, 113, 255, 0.3) !important;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #0671FF 0%, #2B1CA9 100%) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 6px rgba(6, 113, 255, 0.4) !important;
+    }
+    
+    /* Download buttons */
+    .stDownloadButton > button {
+        background: #ffffff !important;
+        color: #0671FF !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 6px !important;
+        padding: 6px 12px !important;
+        font-size: 0.75rem !important;
+        font-weight: 500 !important;
+        box-shadow: none !important;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: #f8fafc !important;
+        border-color: #0671FF !important;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+        width: 5px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 0.7rem;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+    
+    /* Welcome section - compact */
+    .welcome-section {
+        text-align: center;
+        padding: 2rem 1rem 1rem 1rem;
+    }
+    
+    .welcome-title {
+        color: #0f172a;
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+        letter-spacing: -0.02em;
+    }
+    
+    .welcome-subtitle {
+        color: #64748b;
+        font-size: 0.85rem;
         margin-bottom: 1rem;
     }
     
-    .view-toggle-btn {
+    /* Quick start chips - horizontal bright pills */
+    .quick-start-bar {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .quick-chip {
+        background: linear-gradient(135deg, #e8f4fd 0%, #f0f7ff 100%);
+        border: 1px solid #c7e4fd;
+        color: #2B1CA9;
         padding: 8px 16px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: #ffffff;
-        cursor: pointer;
-        font-size: 0.85rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
         font-weight: 500;
-        color: var(--oslo-gray);
+        cursor: pointer;
         transition: all 0.2s ease;
+        white-space: nowrap;
     }
     
-    .view-toggle-btn:hover {
-        border-color: var(--curious-blue);
-        color: var(--curious-blue);
+    .quick-chip:hover {
+        background: linear-gradient(135deg, #1680E4 0%, #0671FF 100%);
+        border-color: #0671FF;
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(6, 113, 255, 0.25);
     }
     
-    .view-toggle-btn.active {
-        background: var(--curious-blue);
-        color: white;
-        border-color: var(--curious-blue);
+    .quick-chip.alt1 {
+        background: linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%);
+        border-color: #bbf7d0;
+        color: #166534;
+    }
+    
+    .quick-chip.alt1:hover {
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        border-color: #22c55e;
+        color: #ffffff;
+    }
+    
+    .quick-chip.alt2 {
+        background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
+        border-color: #fde68a;
+        color: #92400e;
+    }
+    
+    .quick-chip.alt2:hover {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        border-color: #f59e0b;
+        color: #ffffff;
+    }
+    
+    /* Message timestamp */
+    .msg-time {
+        font-size: 0.65rem;
+        color: #94a3b8;
+        margin-top: 4px;
+    }
+    
+    .user-msg .msg-time {
+        text-align: right;
+        color: rgba(255,255,255,0.7);
+    }
+    
+    /* Search input in sidebar */
+    .search-container {
+        padding: 0 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Quick actions */
+    .quick-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+    }
+    
+    .quick-action-btn {
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        color: #64748b;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    
+    .quick-action-btn:hover {
+        background: #e8f4fd;
+        border-color: #0671FF;
+        color: #0671FF;
+    }
+    
+    /* ========== STYLE NATIVE STREAMLIT CHAT MESSAGES ========== */
+    
+    /* Style assistant messages (white card look) */
+    [data-testid="stChatMessage"][data-testid-role="assistant"] {
+        background: #ffffff !important;
+        border-radius: 12px !important;
+        padding: 20px 24px !important;
+        margin: 16px 0 !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+        border: 1px solid #e5e7eb !important;
+    }
+    
+    /* Style user messages (blue pill on right) */
+    [data-testid="stChatMessage"][data-testid-role="user"] {
+        background: linear-gradient(135deg, #1680E4 0%, #0671FF 100%) !important;
+        color: #ffffff !important;
+        border-radius: 18px 18px 4px 18px !important;
+        padding: 10px 18px !important;
+        margin: 12px 0 !important;
+        max-width: 70% !important;
+        margin-left: auto !important;
+        box-shadow: 0 2px 6px rgba(22, 128, 228, 0.25) !important;
+    }
+    
+    [data-testid="stChatMessage"][data-testid-role="user"] * {
+        color: #ffffff !important;
+    }
+    
+    /* Hide default avatar for cleaner look */
+    [data-testid="stChatMessageAvatarUser"],
+    [data-testid="stChatMessageAvatarAssistant"] {
+        display: none !important;
+    }
+    
+    /* Style content inside chat messages */
+    [data-testid="stChatMessage"] p {
+        margin: 0.5rem 0;
+        line-height: 1.7;
+    }
+    
+    /* Numbered list styling */
+    [data-testid="stChatMessage"] ol {
+        list-style: decimal;
+        padding-left: 1.5rem;
+        margin: 1rem 0;
+    }
+    
+    [data-testid="stChatMessage"] ol > li {
+        margin-bottom: 1.25rem;
+        color: #2B1CA9;
+        font-weight: 500;
+    }
+    
+    /* Nested bullet list */
+    [data-testid="stChatMessage"] ul {
+        list-style: circle;
+        padding-left: 1.5rem;
+        margin: 0.5rem 0;
+    }
+    
+    [data-testid="stChatMessage"] ul li {
+        margin-bottom: 0.35rem;
+        color: #555354;
+        font-size: 0.9rem;
+        font-weight: 400;
+    }
+    
+    /* Tool badge inline code styling */
+    [data-testid="stChatMessage"] code {
+        background: #e8f4fd !important;
+        color: #2B1CA9 !important;
+        padding: 2px 8px !important;
+        border-radius: 4px !important;
+        font-size: 0.85rem !important;
+    }
+    
+    /* Caption (timestamp) styling */
+    [data-testid="stChatMessage"] [data-testid="stCaptionContainer"] {
+        font-size: 0.75rem;
+        color: #9ca3af;
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid #f3f4f6;
+    }
+    
+    /* Status message */
+    .stAlert {
+        background: #f8fafc !important;
+        border-radius: 8px !important;
+        border-left: 3px solid #1680E4 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================================================
+# BACKEND URL
+# ==========================================================================
+BACKEND_URL = "http://localhost:8000"
+
+# ==========================================================================
+# SESSION STATE
+# ==========================================================================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "processing" not in st.session_state:
+    st.session_state.processing = False
+
+if "enhanced_query" not in st.session_state:
+    st.session_state.enhanced_query = ""
+
+if "current_status" not in st.session_state:
+    st.session_state.current_status = ""
+
+if "input_key" not in st.session_state:
+    st.session_state.input_key = 0
+
+if "default_input" not in st.session_state:
+    st.session_state.default_input = ""
+
+# Chat history - stores all conversations
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []  # List of {"id": int, "title": str, "messages": list}
+
+if "current_conversation_id" not in st.session_state:
+    st.session_state.current_conversation_id = None
+
+if "streaming_response" not in st.session_state:
+    st.session_state.streaming_response = ""
+
+# ==========================================================================
 # HELPER FUNCTIONS
 # ==========================================================================
-def _to_str(val):
-    """Convert any value to a display string."""
-    if val is None:
-        return "—"
-    if isinstance(val, list):
-        return ", ".join(str(v) for v in val)
-    return str(val) if val else "—"
+def parse_companies_from_response(response_text: str) -> list:
+    """
+    Parse company data from assistant response text for CSV/Excel export.
+    Handles multiple response formats including numbered lists and single company.
+    """
+    companies = []
+    
+    if not response_text:
+        return companies
+    
+    # Split by numbered entries (1. Company, 2. Company, etc.)
+    # Handle both "1. Name" and "**1. Name**" formats
+    blocks = re.split(r'\n(?=\*?\*?\d+\.)', response_text)
+    
+    for block in blocks:
+        if not block.strip():
+            continue
+        
+        company = {}
+        
+        # Extract company name from header (e.g., "1. Company Name" or "**1. Company Name**")
+        name_match = re.search(r'^\*?\*?\d+\.?\s*\*?\*?\s*([^\n\*:]+)', block)
+        if name_match:
+            name = name_match.group(1).strip()
+            if name and len(name) > 1:
+                company['Name'] = name
+        
+        # Field extraction patterns - check for various formats
+        patterns = {
+            'Website': [r'Website[:\s]+([^\n]+)', r'URL[:\s]+([^\n]+)'],
+            'Description': [r'Description[:\s]+([^\n]+)'],
+            'Country': [r'Country[:\s]+([^\n]+)'],
+            'Founding Year': [r'Founding\s*Year[:\s]+([^\n]+)', r'Founded[:\s]+([^\n]+)'],
+            'Funding Stage': [r'Funding\s*Stage[:\s]+([^\n]+)', r'Funding[:\s]+([^\n]+)'],
+            'ARR': [r'ARR[:\s]+([^\n]+)'],
+            'Market Sector': [r'Sector[:\s]+([^\n]+)', r'Market\s*Sector[:\s]+([^\n]+)'],
+            'Relevance Score': [r'(?:Global\s*)?Relevance\s*Score[:\s]+([^\n]+)'],
+        }
+        
+        for field, field_patterns in patterns.items():
+            for pattern in field_patterns:
+                match = re.search(pattern, block, re.IGNORECASE)
+                if match:
+                    value = match.group(1).strip().strip('*').strip()
+                    if value and value.lower() not in ['n/a', 'none', 'unknown', 'not available', 'not publicly available', 'not specified']:
+                        company[field] = value
+                        break
+        
+        if company.get('Name'):
+            companies.append(company)
+    
+    # If no numbered companies found, try single company format (e.g., "Name: Opus")
+    if not companies:
+        company = {}
+        name_match = re.search(r'[•\-\*]?\s*Name[:\s]+([^\n]+)', response_text, re.IGNORECASE)
+        if name_match:
+            company['Name'] = name_match.group(1).strip().strip('*')
+            
+            single_patterns = {
+                'Website': r'Website[:\s]+([^\n]+)',
+                'Description': r'Description[:\s]+([^\n]+)',
+                'Country': r'Country[:\s]+([^\n]+)',
+                'Founding Year': r'Founding\s*Year[:\s]+([^\n]+)',
+                'Funding Stage': r'Funding\s*Stage[:\s]+([^\n]+)',
+                'ARR': r'ARR[:\s]+([^\n]+)',
+                'Market Sector': r'Sector[:\s]+([^\n]+)',
+                'Relevance Score': r'(?:Global\s*)?Relevance\s*Score[:\s]+([^\n]+)',
+            }
+            
+            for field, pattern in single_patterns.items():
+                match = re.search(pattern, response_text, re.IGNORECASE)
+                if match:
+                    value = match.group(1).strip().strip('*')
+                    if value and value.lower() not in ['n/a', 'none', 'unknown', 'not available', 'not publicly available', 'not specified']:
+                        company[field] = value
+            
+            if company.get('Name'):
+                companies.append(company)
+    
+    return companies
 
-def render_kpi_cards(metrics: list):
-    """Render beautiful KPI cards using Streamlit columns for reliability."""
-    cols = st.columns(len(metrics))
-    for i, metric in enumerate(metrics):
-        with cols[i]:
-            st.markdown(f'''
-            <div style="
-                background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
-                border-radius: 16px;
-                padding: 1.5rem 1rem;
-                text-align: center;
-                border: 1px solid #e2e8f0;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            ">
-                <div style="font-size: 1.5rem; margin-bottom: 8px;">{metric['icon']}</div>
-                <div style="font-size: 2rem; font-weight: 800; color: #2B1CA9; line-height: 1; margin-bottom: 6px;">{metric['value']}</div>
-                <div style="font-size: 0.75rem; color: #939598; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">{metric['label']}</div>
+
+def create_csv_download(companies: list) -> bytes:
+    """Create CSV from company data."""
+    if not companies:
+        return b""
+    df = pd.DataFrame(companies)
+    return df.to_csv(index=False).encode('utf-8')
+
+
+def create_excel_download(companies: list) -> bytes:
+    """Create Excel file from company data."""
+    if not companies:
+        return b""
+    df = pd.DataFrame(companies)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Companies')
+    return output.getvalue()
+
+
+def stream_chat_response(message: str, history: list):
+    """
+    Stream chat response using SSE.
+    Yields status updates and final response.
+    """
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/chat",
+            json={
+                "message": message,
+                "conversation_history": history
+            },
+            stream=True,
+            timeout=180
+        )
+        
+        final_data = None
+        
+        for line in response.iter_lines():
+            if line:
+                line_str = line.decode('utf-8')
+                
+                if line_str.startswith('event:'):
+                    event_type = line_str.split(':', 1)[1].strip()
+                elif line_str.startswith('data:'):
+                    data = line_str.split(':', 1)[1].strip()
+                    
+                    if event_type == 'status':
+                        yield {'type': 'status', 'content': data}
+                    elif event_type in ['complete', 'error']:
+                        try:
+                            final_data = json.loads(data)
+                            yield {'type': 'complete', 'content': final_data}
+                        except json.JSONDecodeError:
+                            yield {'type': 'error', 'content': data}
+        
+    except requests.exceptions.Timeout:
+        yield {'type': 'error', 'content': 'Request timed out. Please try again.'}
+    except requests.exceptions.ConnectionError:
+        yield {'type': 'error', 'content': 'Cannot connect to backend. Make sure the server is running.'}
+    except Exception as e:
+        yield {'type': 'error', 'content': f'Error: {str(e)}'}
+
+
+def save_current_conversation():
+    """Save current messages to conversation history."""
+    if st.session_state.messages and len(st.session_state.messages) > 0:
+        # Get title from first user message
+        title = "New Chat"
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                title = msg["content"][:40] + "..." if len(msg["content"]) > 40 else msg["content"]
+                break
+        
+        if st.session_state.current_conversation_id is not None:
+            # Update existing conversation
+            for conv in st.session_state.conversation_history:
+                if conv["id"] == st.session_state.current_conversation_id:
+                    conv["messages"] = st.session_state.messages.copy()
+                    conv["title"] = title
+                    break
+        else:
+            # Create new conversation
+            new_id = len(st.session_state.conversation_history) + 1
+            st.session_state.conversation_history.append({
+                "id": new_id,
+                "title": title,
+                "messages": st.session_state.messages.copy()
+            })
+            st.session_state.current_conversation_id = new_id
+
+
+def load_conversation(conv_id):
+    """Load a conversation from history."""
+    for conv in st.session_state.conversation_history:
+        if conv["id"] == conv_id:
+            st.session_state.messages = conv["messages"].copy()
+            st.session_state.current_conversation_id = conv_id
+            break
+
+
+def start_new_conversation():
+    """Start a fresh conversation."""
+    save_current_conversation()
+    st.session_state.messages = []
+    st.session_state.current_conversation_id = None
+
+
+# ==========================================================================
+# SIDEBAR - Chat History with Search
+# ==========================================================================
+with st.sidebar:
+    # Brand header
+    st.markdown('''
+    <div class="sidebar-header">
+        <div class="sidebar-brand">
+            <div class="sidebar-logo">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
             </div>
-            ''', unsafe_allow_html=True)
-
-def render_section_end():
-    """Add spacing after a section."""
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-def render_section_header(number: int, title: str):
-    """Render a numbered section header with wrapper."""
-    st.markdown(f'''
-    <div class="section-wrapper">
-        <div class="section-header">
-            <div class="section-number">{number}</div>
-            <p class="section-title">{title}</p>
+            <span class="sidebar-brand-text">AB Scout</span>
         </div>
     </div>
     ''', unsafe_allow_html=True)
-
-def get_company_initials(name: str) -> str:
-    """Get initials from company name for avatar."""
-    if not name:
-        return "?"
-    words = name.split()
-    if len(words) >= 2:
-        return (words[0][0] + words[1][0]).upper()
-    return name[:2].upper()
-
-def render_company_card(company: dict, index: int):
-    """Render an expandable company card using Streamlit expander."""
-    name = _to_str(company.get('name', 'Unknown Company'))
-    country = _to_str(company.get('country', ''))
-    sector = _to_str(company.get('market_sector', ''))
-    stage = _to_str(company.get('funding_stage', ''))
-    description = _to_str(company.get('description', ''))
-    website = _to_str(company.get('url', ''))
-    founded = _to_str(company.get('founding_year', ''))
-    arr = _to_str(company.get('ARR', ''))
     
-    # Build tags for the header
-    tags = []
-    if sector and sector != '—':
-        tags.append(f'<span class="company-tag sector">{sector}</span>')
-    if country and country != '—':
-        tags.append(f'<span class="company-tag country">🌍 {country}</span>')
-    if stage and stage != '—':
-        tags.append(f'<span class="company-tag stage">{stage}</span>')
-    
-    tags_html = ''.join(tags[:3])  # Limit to 3 tags
-    
-    initials = get_company_initials(name)
-    
-    with st.expander(f"🏢 {name}", expanded=False):
-        # Company details in a nice grid
-        st.markdown(f'''
-        <div style="margin: -1rem -1rem 0 -1rem; padding: 1.25rem; background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); border-radius: 8px;">
-            <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 1rem;">
-                <div class="company-avatar" style="width: 48px; height: 48px; font-size: 1.1rem;">{initials}</div>
-                <div>
-                    <div style="font-size: 1.3rem; font-weight: 700; color: #555354;">{name}</div>
-                    <div class="company-card-tags" style="margin-top: 8px;">{tags_html}</div>
-                </div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        # Description section
-        if description and description != '—':
-            st.markdown(f'''
-            <div style="margin: 1.25rem 0; padding: 1.25rem; background: #f8fafc; border-radius: 12px; border-left: 4px solid #1680E4;">
-                <div style="font-size: 0.75rem; color: #939598; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px;">About</div>
-                <div style="font-size: 1rem; color: #555354; line-height: 1.7;">{description}</div>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        # Details grid
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if website and website != '—':
-                st.markdown(f'''
-                <div class="company-detail-item">
-                    <div class="company-detail-label" style="font-size: 0.75rem;">🌐 Website</div>
-                    <div class="company-detail-value" style="font-size: 0.95rem;"><a href="{website}" target="_blank">{website}</a></div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            if founded and founded != '—':
-                st.markdown(f'''
-                <div class="company-detail-item" style="margin-top: 14px;">
-                    <div class="company-detail-label" style="font-size: 0.75rem;">📅 Founded</div>
-                    <div class="company-detail-value" style="font-size: 0.95rem;">{founded}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-        
-        with col2:
-            if stage and stage != '—':
-                st.markdown(f'''
-                <div class="company-detail-item">
-                    <div class="company-detail-label" style="font-size: 0.75rem;">💰 Funding Stage</div>
-                    <div class="company-detail-value" style="font-size: 0.95rem;">{stage}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            if arr and arr != '—':
-                st.markdown(f'''
-                <div class="company-detail-item" style="margin-top: 14px;">
-                    <div class="company-detail-label" style="font-size: 0.75rem;">📈 ARR</div>
-                    <div class="company-detail-value" style="font-size: 0.95rem;">{arr}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-        
-        # External Links Section
-        company_name_encoded = name.replace(' ', '%20')
-        linkedin_url = f"https://www.linkedin.com/search/results/companies/?keywords={company_name_encoded}"
-        crunchbase_url = f"https://www.crunchbase.com/textsearch?q={company_name_encoded}"
-        google_news_url = f"https://news.google.com/search?q={company_name_encoded}"
-        
-        st.markdown(f'''
-        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
-            <div style="font-size: 0.75rem; color: #939598; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 10px;">🔗 Research Links</div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <a href="{linkedin_url}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #0077B5; color: white; border-radius: 8px; text-decoration: none; font-size: 0.8rem; font-weight: 500;">
-                    <span>in</span> LinkedIn
-                </a>
-                <a href="{crunchbase_url}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #0288D1; color: white; border-radius: 8px; text-decoration: none; font-size: 0.8rem; font-weight: 500;">
-                    📊 Crunchbase
-                </a>
-                <a href="{google_news_url}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #555354; color: white; border-radius: 8px; text-decoration: none; font-size: 0.8rem; font-weight: 500;">
-                    📰 News
-                </a>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-
-# ==========================================================================
-# STATE MANAGEMENT
-# ==========================================================================
-if "criteria_value" not in st.session_state:
-    st.session_state.criteria_value = ""
-if "found_companies" not in st.session_state:
-    st.session_state.found_companies = []
-if "search_completed" not in st.session_state:
-    st.session_state.search_completed = False
-
-# ==========================================================================
-# HERO HEADER
-# ==========================================================================
-import base64
-
-# Load Arab Bank logo
-logo_path = "frontend/assets/arab_bank_logo.png"
-try:
-    with open(logo_path, "rb") as f:
-        logo_base64 = base64.b64encode(f.read()).decode()
-    logo_html = f'<img src="data:image/png;base64,{logo_base64}" alt="Arab Bank" style="height: 55px;">'
-except:
-    logo_html = '<div style="font-size: 1.5rem; font-weight: bold;">Arab Bank</div>'
-
-st.markdown(f"""
-<div class="hero">
-    <div class="hero-inner">
-        <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 16px;">
-            {logo_html}
-            <div style="height: 40px; width: 1px; background: rgba(255,255,255,0.3);"></div>
-            <div style="font-size: 0.9rem; opacity: 0.9; font-weight: 500; color: white;">Ventures</div>
-        </div>
-        <div class="hero-title">Investment Sourcing Agent</div>
-        <div class="hero-subtitle">Your AI-powered scout for discovering and analyzing potential startup investments across global markets</div>
-        <div style="display: flex; gap: 12px; margin-top: 1.25rem; flex-wrap: wrap;">
-            <div class="hero-badge">
-                <span>🔍</span> Live Web Search
-            </div>
-            <div class="hero-badge">
-                <span>📊</span> Deep-Dive Analysis
-            </div>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ==========================================================================
-# SECTION 1: INVESTMENT THESIS
-# ==========================================================================
-render_section_header(1, "Define Your Investment Thesis")
-
-st.markdown("""
-<p style="color: #939598; font-size: 0.9rem; margin-bottom: 1rem;">
-    Describe the type of startups you're looking for. Be specific about industry, location, funding stage, and other criteria.
-</p>
-""", unsafe_allow_html=True)
-
-criteria_input = st.text_area(
-    "Investment Thesis",
-    value=st.session_state.criteria_value,
-    height=120,
-    placeholder="e.g., AI startups in healthcare based in Germany at Series A stage, B2B SaaS companies in the MENA region with $1M+ ARR...",
-    label_visibility="collapsed",
-    help="Be specific about industry, location, stage, and any other criteria"
-)
-
-if criteria_input != st.session_state.criteria_value:
-    st.session_state.criteria_value = criteria_input
-
-# Example queries expander
-with st.expander("💡 See example investment theses", expanded=False):
-    st.markdown("""
-    <p style="color: #939598; font-size: 0.85rem; margin-bottom: 1rem;">
-        Click any example below to use it as your investment thesis:
-    </p>
-    """, unsafe_allow_html=True)
-    
-    # Define example theses with descriptions
-    example_theses = [
-        ("AI startups in London", "Broad AI search in a specific city"),
-        ("Enterprise SaaS in San Francisco, Series B+", "Stage-specific search"),
-        ("Climate tech startups in Berlin with $1M+ ARR", "Revenue filter"),
-        ("Fintech companies in MENA region", "Regional search"),
-        ("B2B payments startups in Europe, Seed stage", "Industry + stage combo"),
-    ]
-    
-    for thesis, description in example_theses:
-        col_ex1, col_ex2 = st.columns([3, 2])
-        with col_ex1:
-            if st.button(f"📌 {thesis}", key=f"ex_{thesis[:20]}", use_container_width=True):
-                st.session_state.criteria_value = thesis
-                st.rerun()
-        with col_ex2:
-            st.markdown(f'<p style="color: #939598; font-size: 0.85rem; margin: 8px 0;">{description}</p>', unsafe_allow_html=True)
-
-# Action buttons - equal width columns
-col_btn1, col_btn2 = st.columns([1, 1], gap="medium")
-with col_btn1:
-    if st.button("✨ Enhance with AI", use_container_width=True, help="Use AI to improve your search"):
-        if criteria_input:
-            with st.spinner("Enhancing..."):
-                try:
-                    resp = requests.post(
-                        "http://localhost:8000/enhance_query",
-                        json={"user_query": criteria_input}
-                    )
-                    if resp.status_code == 200:
-                        refined = resp.json().get("refined_query", "")
-                        if refined:
-                            st.session_state.criteria_value = refined
-                            st.rerun()
-                except Exception as e:
-                    st.error(f"Enhancement failed: {e}")
-        else:
-            st.warning("Enter a thesis first")
-
-with col_btn2:
-    if st.button("🗑️ Clear All", use_container_width=True):
-        st.session_state.criteria_value = ""
-        st.session_state.found_companies = []
-        st.session_state.search_completed = False
+    # New Chat button
+    if st.button("+ New Conversation", use_container_width=True, key="new_chat"):
+        start_new_conversation()
         st.rerun()
-
-render_section_end()
+    
+    st.markdown('<div class="sidebar-section-title">Recent</div>', unsafe_allow_html=True)
+    
+    # Search conversations
+    search_query = st.text_input(
+        "Search",
+        placeholder="Search...",
+        label_visibility="collapsed",
+        key="search_chats"
+    )
+    
+    # Filter and display conversation history (newest first)
+    if st.session_state.conversation_history:
+        filtered_convs = st.session_state.conversation_history
+        if search_query:
+            filtered_convs = [
+                c for c in st.session_state.conversation_history 
+                if search_query.lower() in c['title'].lower()
+            ]
+        
+        if filtered_convs:
+            for conv in reversed(filtered_convs):
+                is_active = conv["id"] == st.session_state.current_conversation_id
+                btn_type = "primary" if is_active else "secondary"
+                
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    if st.button(
+                            f"{conv['title']}", 
+                            key=f"conv_{conv['id']}", 
+                            use_container_width=True,
+                            type=btn_type
+                        ):
+                            save_current_conversation()
+                            load_conversation(conv["id"])
+                            st.rerun()
+                with col2:
+                    if st.button("×", key=f"del_{conv['id']}", help="Delete conversation"):
+                        st.session_state.conversation_history = [
+                            c for c in st.session_state.conversation_history if c["id"] != conv["id"]
+                        ]
+                        if st.session_state.current_conversation_id == conv["id"]:
+                            st.session_state.messages = []
+                            st.session_state.current_conversation_id = None
+                        st.rerun()
+        else:
+            st.markdown('<p style="color: #94a3b8; font-size: 0.8rem; text-align: center; padding: 1rem;">No matching conversations</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p style="color: #94a3b8; font-size: 0.8rem; text-align: center; padding: 1rem;">No conversations yet</p>', unsafe_allow_html=True)
 
 # ==========================================================================
-# SECTION 2: SEARCH FILTERS
+# HEADER
 # ==========================================================================
-render_section_header(2, "Refine Search Filters")
-
-st.markdown("""
-<p style="color: #939598; font-size: 0.9rem; margin-bottom: 1rem;">
-    Narrow down your search with additional criteria. These filters will be combined with your investment thesis.
-</p>
-""", unsafe_allow_html=True)
-
-# Filter row 1
-col_f1, col_f2 = st.columns(2)
-
-with col_f1:
-    st.markdown("**💰 Funding Stage**")
-    st.caption("Pre-Seed (<$500K) → Seed ($500K-$2M) → Series A ($2M-$15M) → Series B+ ($15M+)")
-    funding_stage = st.selectbox(
-        "Funding Stage",
-        ["Any", "Pre-Seed", "Seed", "Series A", "Series B", "Series C+", "Growth"],
-        label_visibility="collapsed"
-    )
-
-with col_f2:
-    st.markdown("**📈 Minimum ARR**")
-    st.caption("ARR = Annual Recurring Revenue (yearly subscription income)")
-    min_arr = st.selectbox(
-        "Minimum ARR",
-        ["Any", "$100K+", "$500K+", "$1M+", "$5M+", "$10M+", "$50M+"],
-        label_visibility="collapsed"
-    )
-
-# Filter row 2
-col_f3, col_f4 = st.columns(2)
-
-with col_f3:
-    st.markdown("**💵 Total Funding Raised**")
-    st.caption("Total capital raised from investors across all funding rounds")
-    funding_raised = st.selectbox(
-        "Total Funding",
-        ["Any", "<$1M", "$1M-$5M", "$5M-$20M", "$20M-$50M", "$50M+"],
-        label_visibility="collapsed"
-    )
-
-with col_f4:
-    st.markdown("**🏢 Company Stage**")
-    st.caption("Early = building product | Growth = scaling | Late = established")
-    company_stage = st.selectbox(
-        "Company Stage",
-        ["Any", "Early Stage", "Growth Stage", "Late Stage"],
-        label_visibility="collapsed"
-    )
-
-render_section_end()
-
 # ==========================================================================
-# SECTION 3: OUTPUT CONFIGURATION
+# QUICK START PROMPTS - Define before use
 # ==========================================================================
-render_section_header(3, "Configure Output")
-
-st.markdown("""
-<p style="color: #939598; font-size: 0.9rem; margin-bottom: 1rem;">
-    Select which data points you want to see in your results. All selected attributes will be researched for each company.
-</p>
-""", unsafe_allow_html=True)
-
-ALL_ATTRIBUTES = [
-    "Company Name",
-    "Website", 
-    "Country",
-    "Description",
-    "Founded",
-    "Funding Stage",
-    "ARR",
-    "Market Sector"
+QUICK_START_PROMPTS = [
+    {"label": "Discover Startups", "query": "Find emerging startups in AI healthcare sector"},
+    {"label": "Competitor Analysis", "query": "Analyze competitors of Stripe in payments"},
+    {"label": "Market Research", "query": "Research fintech opportunities in MENA region"}
 ]
 
-selected_attributes = st.multiselect(
-    "Select Data Points",
-    options=ALL_ATTRIBUTES,
-    default=["Company Name", "Website", "Country", "Market Sector"],
-    label_visibility="collapsed",
-    help="Choose which columns appear in your results"
-)
-
-if not selected_attributes:
-    st.warning("⚠️ Please select at least one attribute to display in results.")
-
-render_section_end()
-
 # ==========================================================================
-# SECTION 4: LAUNCH
+# QUICK START BAR (always visible at top when no messages)
 # ==========================================================================
-render_section_header(4, "Launch Scout Agent")
-
-# Search preview
-if st.session_state.criteria_value:
-    st.markdown(f"""
-    <div style="background: rgba(22, 128, 228, 0.06); border-radius: 10px; padding: 14px 16px; margin-bottom: 1rem; border-left: 4px solid #1680E4;">
-        <div style="font-size: 0.75rem; color: #1680E4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">
-            📋 Search Preview
-        </div>
-        <div style="font-size: 0.95rem; color: #555354; line-height: 1.5;">
-            {st.session_state.criteria_value}
-        </div>
+if not st.session_state.messages:
+    st.markdown('''
+    <div class="welcome-section">
+        <div class="welcome-title">What can I help you find?</div>
+        <div class="welcome-subtitle">Discover startups, analyze markets, and research opportunities</div>
     </div>
-    """, unsafe_allow_html=True)
-else:
-    st.info("👆 Enter an investment thesis above to get started.")
-
-# Launch button
-run_btn = st.button(
-    "🎯 Launch Scout Agent",
-    type="primary",
-    use_container_width=True,
-    disabled=not st.session_state.criteria_value or not selected_attributes
-)
-
-
+    ''', unsafe_allow_html=True)
+    
+    # Quick start chips - horizontal row
+    chip_cols = st.columns([1, 1, 1, 1, 1])
+    with chip_cols[1]:
+        if st.button("Discover Startups", key="qs_0", use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": QUICK_START_PROMPTS[0]["query"], "timestamp": datetime.now().strftime("%H:%M")})
+            st.session_state.processing = True
+            st.rerun()
+    with chip_cols[2]:
+        if st.button("Competitor Analysis", key="qs_1", use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": QUICK_START_PROMPTS[1]["query"], "timestamp": datetime.now().strftime("%H:%M")})
+            st.session_state.processing = True
+            st.rerun()
+    with chip_cols[3]:
+        if st.button("Market Research", key="qs_2", use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": QUICK_START_PROMPTS[2]["query"], "timestamp": datetime.now().strftime("%H:%M")})
+            st.session_state.processing = True
+            st.rerun()
 
 # ==========================================================================
-# SEARCH EXECUTION
+# HELPER: Fix flat numbered list to nested structure
 # ==========================================================================
-if run_btn:
-    with st.status("🤖 Scout Agent Active...", expanded=True) as status:
-        st.write("📡 Initializing connection...")
+def fix_flat_list_to_nested(text: str) -> str:
+    """
+    Converts a flat numbered list where details are separate items into a proper nested structure.
+    
+    Input format:
+    1. CompanyName
+    2. Website: url
+    3. Description: text
+    4. Founded: year
+    5. NextCompany
+    ...
+    
+    Output format:
+    1. **CompanyName**
+       - Website: url
+       - Description: text
+       - Founded: year
+    
+    2. **NextCompany**
+    ...
+    """
+    import re
+    
+    lines = text.strip().split('\n')
+    result_lines = []
+    company_counter = 0
+    in_company = False
+    
+    # Keywords that indicate a detail line (not a company name)
+    detail_keywords = ['website:', 'description:', 'founded:', 'founding year:', 
+                       'market sector:', 'funding:', 'arr:', 'employees:', 
+                       'location:', 'country:', 'sector:']
+    
+    for line in lines:
+        line_stripped = line.strip()
         
-        # Build search criteria
-        search_criteria = st.session_state.criteria_value
-        additional = []
+        # Check if this line starts with a number (numbered list item)
+        num_match = re.match(r'^(\d+)\.\s*(.+)$', line_stripped)
         
-        if funding_stage != "Any":
-            additional.append(f"{funding_stage} funding")
-        if min_arr != "Any":
-            additional.append(f"ARR {min_arr}")
-        if funding_raised != "Any":
-            additional.append(f"raised {funding_raised}")
-        if company_stage != "Any":
-            additional.append(f"{company_stage}")
-        
-        if additional:
-            search_criteria = f"{search_criteria}, {', '.join(additional)}"
-        
-        st.write(f"🔍 Searching: *{search_criteria}*")
-        
-        payload = {
-            "search_criteria": search_criteria,
-            "location": "",
-            "funding_stage": funding_stage if funding_stage != "Any" else "",
-            "attributes": [],
-            "email": "user@example.com"
-        }
-        
-        try:
-            response = requests.post(
-                "http://localhost:8000/run_scout",
-                json=payload,
-                stream=True
-            )
+        if num_match:
+            item_text = num_match.group(2).strip()
+            item_lower = item_text.lower()
             
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode("utf-8")
-                    if decoded.startswith("data: "):
-                        content = decoded.replace("data: ", "")
-                        try:
-                            data_json = json.loads(content)
-                            if "success" in data_json:
-                                st.session_state.found_companies = data_json.get("results", [])
-                                st.session_state.search_completed = True
-                                status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
-                                break
-                        except:
-                            st.write(f"📌 {content}")
+            # Check if this is a detail line (Website:, Description:, etc.)
+            is_detail = any(item_lower.startswith(kw) for kw in detail_keywords)
             
-            if st.session_state.found_companies:
-                st.success(f"Found {len(st.session_state.found_companies)} companies!")
+            if is_detail:
+                # Convert to bullet point under current company
+                result_lines.append(f"   - {item_text}")
             else:
-                st.warning("No companies matched your criteria.")
-                
-        except Exception as e:
-            status.update(label="❌ Connection Error", state="error")
-            st.error(f"Failed to connect: {e}")
-
-render_section_end()
+                # This is a company name
+                company_counter += 1
+                if company_counter > 1:
+                    result_lines.append("")  # Blank line between companies
+                result_lines.append(f"{company_counter}. **{item_text}**")
+                in_company = True
+        elif line_stripped.startswith('-'):
+            # Already a bullet point, just preserve it with proper indentation
+            result_lines.append(f"   {line_stripped}")
+        else:
+            # Regular text, preserve as-is
+            result_lines.append(line)
+    
+    return '\n'.join(result_lines)
 
 # ==========================================================================
-# RESULTS DISPLAY
+# CHAT CONTAINER
 # ==========================================================================
-if st.session_state.search_completed and st.session_state.found_companies:
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    # Results header with KPI cards
-    st.markdown("## 📊 Analysis Results")
-    
-    # Calculate metrics
-    companies_found = len(st.session_state.found_companies)
-    data_points = len(selected_attributes)
-    countries = len(set(c.get("country", "Unknown") for c in st.session_state.found_companies))
-    sectors = len(set(c.get("market_sector", "Unknown") for c in st.session_state.found_companies))
-    
-    # Render beautiful KPI cards
-    render_kpi_cards([
-        {"icon": "🏢", "value": companies_found, "label": "Companies Found"},
-        {"icon": "📋", "value": data_points, "label": "Data Points"},
-        {"icon": "🌍", "value": countries, "label": "Countries"},
-        {"icon": "📈", "value": sectors, "label": "Sectors"},
-    ])
-    
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    # ==========================================================================
-    # VIEW TOGGLE: Cards vs Table
-    # ==========================================================================
-    
-    # Initialize view state
-    if "results_view" not in st.session_state:
-        st.session_state.results_view = "cards"
-    
-    # View toggle buttons
-    st.markdown("### 👁️ View Results")
-    
-    view_col1, view_col2, view_spacer = st.columns([1, 1, 3])
-    
-    with view_col1:
-        if st.button("🏢 Card View", use_container_width=True, 
-                     type="primary" if st.session_state.results_view == "cards" else "secondary"):
-            st.session_state.results_view = "cards"
-            st.rerun()
-    
-    with view_col2:
-        if st.button("📊 Table View", use_container_width=True,
-                     type="primary" if st.session_state.results_view == "table" else "secondary"):
-            st.session_state.results_view = "table"
-            st.rerun()
-    
-    st.markdown("")
-    
-    # ==========================================================================
-    # CARD VIEW - Expandable Company Cards
-    # ==========================================================================
-    if st.session_state.results_view == "cards":
+chat_container = st.container()
+
+with chat_container:
+    # Display chat messages (or empty state message)
+    if not st.session_state.messages:
         st.markdown('''
-        <div style="background: rgba(22, 128, 228, 0.06); border-radius: 10px; padding: 12px 16px; margin-bottom: 1rem; display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 1.1rem;">💡</span>
-            <span style="font-size: 0.85rem; color: #555354;">Click on any company card below to expand and view full details</span>
+        <div style="text-align: center; padding: 3rem 1rem; color: #94a3b8;">
+            <p style="font-size: 0.85rem;">Start a conversation or select a quick action above</p>
         </div>
         ''', unsafe_allow_html=True)
-        
-        # Render each company as an expandable card
-        for idx, company in enumerate(st.session_state.found_companies):
-            render_company_card(company, idx)
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        # Show table option hint
-        st.info("📊 Switch to **Table View** above for a compact spreadsheet view that's optimized for exporting.")
     
-    # ==========================================================================
-    # TABLE VIEW - Data Table
-    # ==========================================================================
+    else:
+        # Display chat messages
+        for idx, msg in enumerate(st.session_state.messages):
+            timestamp = msg.get("timestamp", "")
+            
+            if msg["role"] == "user":
+                # User message - using native Streamlit chat_message
+                with st.chat_message("user", avatar="👤"):
+                    st.write(msg["content"])
+                    st.caption(timestamp)
+            elif msg["role"] == "status":
+                st.info(msg["content"])
+            else:
+                # Assistant message - using native Streamlit chat_message
+                content = msg["content"]
+                
+                # Get clean plain text (strip any HTML that might be in cached messages)
+                content_clean = re.sub(r'<[^>]+>', '', content)
+                content_clean = content_clean.replace('&lt;', '<').replace('&gt;', '>')
+                content_clean = content_clean.replace('&amp;', '&')
+                content_clean = content_clean.replace('&nbsp;', ' ').strip()
+                
+                # Fix flat numbered lists to proper nested structure
+                if msg.get("tool_used"):
+                    content_clean = fix_flat_list_to_nested(content_clean)
+                
+                with st.chat_message("assistant", avatar="🏦"):
+                    # Show tool badge if used
+                    if msg.get("tool_used"):
+                        st.markdown(f"**🔧 Tool:** `{msg['tool_used']}`")
+                    
+                    # Display content as markdown
+                    st.markdown(content_clean)
+                    
+                    # Show timestamp
+                    st.caption(timestamp)
+                
+                # Download buttons for responses with company data
+                if msg.get("tool_used"):
+                    companies = parse_companies_from_response(msg["content"])
+                    if companies:
+                        col_spacer1, col_csv, col_excel, col_spacer2 = st.columns([0.5, 0.8, 0.8, 3.9])
+                        with col_csv:
+                            csv_data = create_csv_download(companies)
+                            st.download_button(
+                                label="Export CSV",
+                                data=csv_data,
+                                file_name=f"companies_{idx}.csv",
+                                mime="text/csv",
+                                key=f"csv_{idx}"
+                            )
+                        with col_excel:
+                            excel_data = create_excel_download(companies)
+                            st.download_button(
+                                label="Export Excel",
+                                data=excel_data,
+                                file_name=f"companies_{idx}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"excel_{idx}"
+                            )
+
+# ==========================================================================
+# SSE STATUS PLACEHOLDER (appears in chat area while processing)
+# ==========================================================================
+status_placeholder = st.empty()
+
+# ==========================================================================
+# INPUT AREA
+# ==========================================================================
+st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+
+# Hide buttons completely when processing
+if st.session_state.processing:
+    st.markdown('''
+    <style>
+    div[data-testid="stHorizontalBlock"]:has(button) { display: none !important; }
+    </style>
+    ''', unsafe_allow_html=True)
+
+# Text input - use dynamic key to clear after submission
+user_input = st.text_input(
+    "Message",
+    value=st.session_state.default_input,
+    placeholder="Ask about startups, companies, or market intelligence...",
+    label_visibility="collapsed",
+    key=f"user_input_{st.session_state.input_key}",
+    disabled=st.session_state.processing
+)
+
+# Clear the default_input after it's been used
+if st.session_state.default_input:
+    st.session_state.default_input = ""
+
+# Buttons row - only show when not processing
+if not st.session_state.processing:
+    col1, col2, col3, col4 = st.columns([1.2, 1, 1, 1.8])
     
-    # Attribute mapping (needed for both views for export)
-    ATTRIBUTE_MAPPING = {
-        "Company Name": "name",
-        "Website": "url",
-        "Country": "country",
-        "Description": "description",
-        "Founded": "founding_year",
-        "Funding Stage": "funding_stage",
-        "ARR": "ARR",
-        "Market Sector": "market_sector"
-    }
+    with col1:
+        send_btn = st.button("Send", type="primary", use_container_width=True)
     
-    COLUMN_CONFIGS = {
-        "Company Name": st.column_config.TextColumn("Company", width=150),
-        "Website": st.column_config.LinkColumn("Website", width=200),
-        "Country": st.column_config.TextColumn("Country", width=130),
-        "Description": st.column_config.TextColumn("Description", width=350),
-        "Founded": st.column_config.TextColumn("Founded", width=90),
-        "Funding Stage": st.column_config.TextColumn("Stage", width=120),
-        "ARR": st.column_config.TextColumn("ARR", width=100),
-        "Market Sector": st.column_config.TextColumn("Sector", width=160),
-    }
+    with col2:
+        enhance_btn = st.button("Enhance Query", use_container_width=True)
     
-    # Build filtered dataframe (always needed for export)
-    table_data = []
-    for company in st.session_state.found_companies:
-        row = {}
-        for attr in selected_attributes:
-            key = ATTRIBUTE_MAPPING.get(attr)
-            if key:
-                row[attr] = _to_str(company.get(key))
-        table_data.append(row)
+    with col3:
+        if st.session_state.messages:
+            if st.button("Clear", use_container_width=True):
+                start_new_conversation()
+                st.rerun()
+else:
+    send_btn = False
+    enhance_btn = False
+
+# ==========================================================================
+# ENHANCE QUERY
+# ==========================================================================
+if enhance_btn and user_input:
+    with st.spinner("Enhancing..."):
+        try:
+            response = requests.post(
+                f"{BACKEND_URL}/enhance_query",
+                json={"user_query": user_input},
+                timeout=30
+            )
+            if response.status_code == 200:
+                data = response.json()
+                enhanced = data.get("refined_query", user_input)
+                # Set the enhanced query as the new input value
+                st.session_state.default_input = enhanced
+                st.session_state.enhanced_query = enhanced
+                st.session_state.input_key += 1  # Force input refresh
+                st.rerun()
+        except Exception as e:
+            st.error(f"Enhancement failed: {str(e)}")
+
+# ==========================================================================
+# SEND MESSAGE
+# ==========================================================================
+if send_btn and user_input:
+    # Use enhanced query if available, otherwise use original
+    message_to_send = st.session_state.enhanced_query if st.session_state.enhanced_query else user_input
     
-    df = pd.DataFrame(table_data)
-    active_config = {attr: COLUMN_CONFIGS[attr] for attr in selected_attributes if attr in COLUMN_CONFIGS}
+    # Add user message to chat with timestamp
+    st.session_state.messages.append({
+        "role": "user", 
+        "content": message_to_send,
+        "timestamp": datetime.now().strftime("%H:%M")
+    })
+    st.session_state.processing = True
+    st.session_state.enhanced_query = ""
+    st.session_state.input_key += 1  # Increment key to clear input
+    st.rerun()
+
+# ==========================================================================
+# PROCESS MESSAGE (call backend with SSE streaming)
+# ==========================================================================
+if st.session_state.processing:
+    # Get the last user message
+    last_message = None
+    for msg in reversed(st.session_state.messages):
+        if msg["role"] == "user":
+            last_message = msg["content"]
+            break
     
-    # Show table only in table view
-    if st.session_state.results_view == "table":
-        # Table header with expand option
-        table_header_col1, table_header_col2 = st.columns([3, 1])
-        with table_header_col1:
-            st.markdown('''
-            <div style="background: rgba(22, 128, 228, 0.06); border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 1.1rem;">📊</span>
-                <span style="font-size: 0.85rem; color: #555354;">Spreadsheet view — optimized for exporting and data analysis</span>
-            </div>
-            ''', unsafe_allow_html=True)
-        with table_header_col2:
-            expand_table = st.checkbox("🔍 Expand Table", value=False, help="Show full-height table")
-        
-        # Calculate table height based on expand state
-        if expand_table:
-            table_height = max(600, 60 + len(df) * 45)  # Full height
-        else:
-            table_height = min(400, 60 + len(df) * 45)  # Compact height
-        
-        # Display table
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            height=table_height,
-            column_config=active_config
-        )
+    if last_message:
+        try:
+            # Build conversation history (exclude status messages and current message)
+            history = []
+            for msg in st.session_state.messages[:-1]:  # Exclude last user message
+                if msg["role"] in ["user", "assistant"]:
+                    history.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+            
+            # Stream the response with status updates
+            final_response = None
+            tool_used = None
+            
+            for update in stream_chat_response(last_message, history):
+                if update['type'] == 'status':
+                    # Show SSE status in the chat area
+                    status_placeholder.markdown(f'''
+                    <div class="message-row">
+                        <div class="avatar bot">S</div>
+                        <div class="status-msg">{update["content"]}</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                elif update['type'] == 'complete':
+                    data = update['content']
+                    final_response = data.get("response", "No response received.")
+                    tool_used = data.get("tool_used")
+                    
+                    # Clear status
+                    status_placeholder.empty()
+                    
+                elif update['type'] == 'error':
+                    final_response = update['content']
+            
+            if final_response:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": final_response,
+                    "tool_used": tool_used,
+                    "timestamp": datetime.now().strftime("%H:%M")
+                })
+                # Auto-save conversation after receiving response
+                save_current_conversation()
+            else:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "No response received.",
+                    "tool_used": None,
+                    "timestamp": datetime.now().strftime("%H:%M")
+                })
+                
+        except Exception as e:
+            status_placeholder.empty()
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Error: {str(e)}",
+                "tool_used": None,
+                "timestamp": datetime.now().strftime("%H:%M")
+            })
     
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
-    # Download section (always visible)
-    st.markdown("### 📥 Export Results")
-    
-    col_dl1, col_dl2 = st.columns(2)
-    
-    with col_dl1:
-        csv_data = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📄 Download CSV",
-            data=csv_data,
-            file_name="investment_scout_results.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    
-    with col_dl2:
-        excel_buffer = BytesIO()
-        df.to_excel(excel_buffer, index=False, engine='openpyxl')
-        st.download_button(
-            "📊 Download Excel",
-            data=excel_buffer.getvalue(),
-            file_name="investment_scout_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+    st.session_state.processing = False
+    st.rerun()
+
+# ==========================================================================
+# FOOTER
+# ==========================================================================
+st.markdown('''
+<div class="footer">
+    © 2025 AB Scout  •  Arab Bank Investment Intelligence  •  Confidential
+</div>
+''', unsafe_allow_html=True)
