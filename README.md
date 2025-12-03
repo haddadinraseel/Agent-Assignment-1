@@ -1,8 +1,8 @@
 Investment Sourcing Agent
 
-Arab Bank Ventures — AI-powered startup discovery and analysis platform
+Arab Bank Ventures — AI-powered startup discovery and analysis chatbot
 
-An intelligent investment sourcing tool that helps venture capital teams discover, analyze, and evaluate potential startup investments across global markets using AI agents.
+An intelligent conversational investment sourcing tool that helps venture capital teams discover, analyze, and evaluate potential startup investments across global markets using AI agents.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.51-red.svg)
@@ -13,12 +13,13 @@ An intelligent investment sourcing tool that helps venture capital teams discove
 
 ## Features
 
-- Discovery Agent — Finds real startups matching your investment thesis using web search
-- Deep Dive Agent — Researches detailed company information (funding, ARR, sector, etc.)
-- AI Query Enhancement — Improves search queries using Azure OpenAI
-- Multiple View Modes — Card view for exploration, table view for data analysis
-- Export Results — Download as CSV or Excel for further analysis
-- Modern UI — Glassmorphism design with Arab Bank branding
+- 💬 **Conversational Interface** — Natural language chat for all startup scouting queries
+- 🔍 **Discovery Agent** — Finds real startups matching your investment thesis using Linkup web search
+- 📊 **Deep Dive Agent** — Researches detailed company information (funding, ARR, sector, competitors)
+- ✨ **AI Query Enhancement** — Improves and expands search queries inline using Azure OpenAI
+- 🔄 **Pipeline Orchestration** — Automated discovery → parallel deep dive research workflow
+- 🎨 **Arab Bank Branding** — Custom UI with official brand colors (Curious Blue, Blue Ribbon, Persian Blue)
+- 🔒 **Focused Conversations** — Agent redirects off-topic questions back to investment research
 
 ---
 
@@ -30,21 +31,23 @@ An intelligent investment sourcing tool that helps venture capital teams discove
 │   Frontend      │ SSE │    Backend      │     │    Agents       │
 └─────────────────┘     └─────────────────┘     └────────┬────────┘
                                                          │
-                                                         ▼
-                                               ┌─────────────────┐
-                                               │  Linkup Search  │
-                                               │      API        │
-                                               └─────────────────┘
+                                               ┌─────────┴─────────┐
+                                               │                   │
+                                               ▼                   ▼
+                                     ┌─────────────────┐  ┌─────────────────┐
+                                     │  Linkup Search  │  │   Azure OpenAI  │
+                                     │      API        │  │       GPT       │
+                                     └─────────────────┘  └─────────────────┘
 ```
 
 ### Components
 
 | Component | Technology | Description |
 |-----------|------------|-------------|
-| Frontend | Streamlit | Interactive UI with glassmorphism styling |
+| Frontend | Streamlit | Conversational chat UI with Arab Bank branding |
 | Backend | FastAPI | REST API with SSE streaming |
-| Agents | LangChain | Discovery & Deep Dive AI agents |
-| LLM | Azure OpenAI | GPT model for reasoning |
+| Agents | LangChain/LangGraph | Conversational, Discovery & Deep Dive AI agents |
+| LLM | Azure OpenAI | GPT model for reasoning and tool selection |
 | Search | Linkup API | Real-time web search for startups |
 
 ---
@@ -58,9 +61,10 @@ Agent-Assignment-1/
 │   ├── services/             # Business logic services
 │   └── utils/                # Utility functions
 ├── frontend/
-│   ├── frontend_copy.py      # Streamlit app (main UI)
+│   ├── streamlit_app.py      # Streamlit chat UI (main UI)
 │   └── assets/               # Images, logos
 ├── my_agents/
+│   ├── conversational_agent.py  # Main chat agent with tool selection
 │   ├── final_agents.py       # Discovery & Deep Dive agents
 │   └── linkup_tools.py       # Linkup search tool wrapper
 ├── scripts/
@@ -118,27 +122,29 @@ uvicorn main2:app --reload --port 8000
 
 **Terminal 2 — Start Frontend:**
 ```bash
-streamlit run frontend/frontend_copy.py --server.port 8502
+streamlit run frontend/streamlit_app.py --server.port 8501
 ```
 
-Open your browser at `http://localhost:8502`
+Open your browser at `http://localhost:8501`
 
 ---
 
 ## Usage
 
-1. **Define Investment Thesis** — Describe the type of startups you're looking for
-   - Example: *"AI startups in healthcare based in Germany at Series A stage"*
+1. **Start a Conversation** — Type your investment query in natural language
+   - Example: *"Find AI startups in healthcare based in Germany at Series A stage"*
+   - Example: *"Search for fintech companies in London with over $1M ARR"*
 
-2. **Refine Filters** — Optionally narrow by funding stage, ARR, company stage
+2. **AI Query Enhancement** — Click "Enhance" to expand and optimize your search query
 
-3. **Configure Output** — Select which data points to research
+3. **Automatic Research** — The agent will:
+   - Use Discovery Agent to find matching startups
+   - Run Deep Dive Agent in parallel to research each company
+   - Return detailed company information
 
-4. **Launch Scout** — Click to start the AI agents
-
-5. **Review Results** — Toggle between card view and table view
-
-6. **Export** — Download results as CSV or Excel
+4. **Follow-up Questions** — Ask about specific companies or request more details
+   - Example: *"Tell me more about company X"*
+   - Example: *"Who are the competitors of this startup?"*
 
 ---
 
@@ -146,21 +152,20 @@ Open your browser at `http://localhost:8502`
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/chat` | POST | Main conversational endpoint (SSE streaming) |
 | `/run_scout` | POST | Run discovery + deep dive pipeline (SSE) |
 | `/enhance_query` | POST | AI-enhance an investment thesis |
+| `/linkup_search` | POST | Direct Linkup web search |
 | `/health` | GET | Health check |
 
-### Example Request
+### Example Chat Request
 
 ```bash
-curl -X POST http://localhost:8000/run_scout \
+curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
-    "search_criteria": "AI startups in London",
-    "location": "",
-    "funding_stage": "Series A",
-    "attributes": [],
-    "email": "user@example.com"
+    "message": "Find AI startups in healthcare in Germany",
+    "history": []
   }'
 ```
 
@@ -168,31 +173,46 @@ curl -X POST http://localhost:8000/run_scout \
 
 ## AI Agents
 
+### Conversational Agent
+The main chat interface that understands user intent and selects the appropriate tools.
+
+**Capabilities:**
+- Natural language understanding for investment queries
+- Intelligent tool selection (search, pipeline, deep dive)
+- Redirects off-topic questions back to investment research
+- Maintains conversation context
+
+**Tools Available:**
+- `linkup_search_tool` — Quick web search for specific queries
+- `run_pipeline` — Full discovery + deep dive workflow
+- `deep_research_company` — Detailed research on a single company
+- `research_competitors` — Find and analyze competitors
+
 ### Discovery Agent
 Finds real startup companies matching an investment thesis using Linkup web search.
 
 **Output:** List of companies with name, URL, and country
 
 ### Deep Dive Agent
-Researches detailed information for each discovered company.
+Researches detailed information for each discovered company in parallel.
 
 **Output:** Expanded company details including:
-- Description
-- Founding year
-- Funding stage
-- ARR (Annual Recurring Revenue)
-- Market sector
+- Description and founding year
+- Funding stage and ARR (Annual Recurring Revenue)
+- Market sector and business model
+- Key competitors
 
 ---
 
 ## Tech Stack
 
-- **Frontend:** Streamlit 1.51
-- **Backend:** FastAPI 0.121, Uvicorn
-- **AI/ML:** LangChain, Azure OpenAI (GPT)
-- **Search:** Linkup API
+- **Frontend:** Streamlit 1.51 with native `st.chat_message` components
+- **Backend:** FastAPI 0.121, Uvicorn with SSE streaming
+- **AI Framework:** LangChain, LangGraph (`create_react_agent`)
+- **LLM:** Azure OpenAI GPT
+- **Search:** Linkup API for real-time web search
 - **Data:** Pandas, Pydantic
-- **Styling:** Custom CSS (Glassmorphism)
+- **Styling:** Custom CSS with Arab Bank brand colors
 
 ---
 
@@ -210,10 +230,19 @@ Researches detailed information for each discovered company.
 
 ## UI Features
 
-- Arab Bank Branding — Custom color palette (Curious Blue, Persian Blue)
-- Card View — Expandable company cards with external links
-- Table View — Sortable spreadsheet with expand option
-- External Links — Quick access to LinkedIn, Crunchbase, News
+### Arab Bank Branding
+Custom color palette applied throughout the interface:
+- **Blue Ribbon** (#0671FF) — Primary accent color
+- **Curious Blue** (#1680E4) — Secondary blue
+- **Persian Blue** (#2B1CA9) — Dark accent
+- **Oslo Gray** (#939598) — Neutral text
+- **Emperor** (#555354) — Dark text
+
+### Chat Interface
+- Native Streamlit chat messages for proper rendering
+- User avatar (👤) and assistant avatar distinction
+- Input clears automatically after sending
+- "Enhance" button updates query inline
 
 ---
 
@@ -231,10 +260,13 @@ Researches detailed information for each discovered company.
 - Verify backend is running on port 8000
 - Check CORS settings in `main2.py`
 
+**Azure Content Filter Error:**
+- If you see "jailbreak" or content filter errors, soften the agent prompts
+- Avoid aggressive language like "NEVER", "CRITICAL", "ALWAYS" in system prompts
+
+**Rate Limiting (429 Error):**
+- Reduce parallel requests or add delays between API calls
+- Check Azure OpenAI quota limits
+
 ---
 
-## License
-
-This project is proprietary to Arab Bank Ventures.
-
----
